@@ -1,9 +1,7 @@
-# Fabric Example Mod
+# Fishing Rod fix
 
-## Setup
+This mod provides fix for old minecraft bug.
 
-For setup instructions please see the [fabric wiki page](https://fabricmc.net/wiki/tutorial:setup) that relates to the IDE that you are using.
+### Before:
 
-## License
-
-This template is available under the CC0 license. Feel free to learn from it and incorporate it in your own projects.
+### After:
