@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "com.andrewchik.fishingrodfix.mixin.client",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "FishingBobberEntityRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+	}
+}
