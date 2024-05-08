@@ -3,13 +3,12 @@
 	"id": "fishingrodfix",
 	"version": "${version}",
 	"name": "Fishing rod fix",
-	"description": "",
+	"description": "This mod provides fix for fishing line rendering bug.",
 	"authors": [
 		"andrewchik"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"sources": "https://github.com/andrewchik0/fishing-rod-fix"
 	},
 	"license": "MIT-LICENSE",
 	"icon": "assets/fishingrodfix/icon.png",
@@ -19,6 +18,7 @@
 			"com.andrewchik.fishingrodfix.FishingRodFixClient"
 		]
 	},
+	"accessWidener" : "fishingrodfix.accesswidener",
 	"mixins": [
 		{
 			"config": "fishingrodfix.client.mixins.json",

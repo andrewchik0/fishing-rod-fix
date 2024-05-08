@@ -1,6 +1,7 @@
 package com.andrewchik.fishingrodfix.mixin.client;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.entity.FishingBobberEntityRenderer;
 import net.minecraft.client.util.math.MatrixStack;
@@ -17,6 +18,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(FishingBobberEntityRenderer.class)
 public class FishingBobberEntityRendererMixin {
+    @Unique
+    private static final Vector3f translate = new Vector3f();
+    @Unique
+    private static int counter = 0;
+
     @Inject(at = @At("HEAD"), method = "renderFishingLine", cancellable = true)
     private static void renderFishingLine(float x, float y, float z, VertexConsumer buffer, MatrixStack.Entry matrices, float segmentStart, float segmentEnd, CallbackInfo ci) {
         float f = x * segmentStart;
@@ -29,36 +35,66 @@ public class FishingBobberEntityRendererMixin {
         i /= l;
         j /= l;
         k /= l;
-
-        buffer.vertex(matrices.getPositionMatrix().translate(calculateTranslate()), f, g, h).color(0, 0, 0, 255).normal(matrices.getNormalMatrix(), i, j, k).next();
+        buffer.vertex(matrices.getPositionMatrix().translate(getTranslate()), f, g, h).color(0, 0, 0, 255).normal(matrices.getNormalMatrix(), i, j, k).next();
         ci.cancel();
     }
 
     @Unique
-    private static Vector3f calculateTranslate() {
-
-        if (MinecraftClient.getInstance().gameRenderer.getCamera().isThirdPerson())
-            return new Vector3f();
-
-        float yaw = 0;
-        if (MinecraftClient.getInstance().player != null) {
-            yaw = MinecraftClient.getInstance().player.getYaw();
+    private static Vector3f getTranslate() {
+        if (counter == 17) {
+            calculateTranslate();
+            counter = 0;
         }
+        counter++;
+        return translate;
+    }
+
+    @Unique
+    private static float getTickDelta() {
+        return MinecraftClient.getInstance().isPaused() ? MinecraftClient.getInstance().pausedTickDelta : MinecraftClient.getInstance().renderTickCounter.tickDelta;
+    }
+
+    @Unique
+    private static void calculateTranslate() {
+        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+
+        if (MinecraftClient.getInstance().gameRenderer.getCamera().isThirdPerson() || player == null) {
+            translate.x = 0;
+            translate.y = 0;
+            translate.z = 0;
+            return;
+        }
+
         float width = MinecraftClient.getInstance().getWindow().getWidth();
         float height = MinecraftClient.getInstance().getWindow().getHeight();
         float ratio = width / height;
         ratio -= 16f / 9f;
 
-        ratio /= 52f; // Experimental value that normalizes rendering
-        ratio /= (110 - MinecraftClient.getInstance().options.getFov().getValue()) / 160f + 1; // FOV corrections
+        ratio /= 68f; // Experimental value that normalizes rendering
+
+        // FOV corrections
+        float fov = MinecraftClient.getInstance().options.getFov().getValue().floatValue();
+        float fovEffected = (float) MinecraftClient.getInstance().gameRenderer.getFov(MinecraftClient.getInstance().gameRenderer.getCamera(), getTickDelta(), true);
+        ratio /= (70f - fov) / 180f + 1;
+
+        //float fovDiff = fovEffected - fov;
+        //ratio -= fovDiff / 1000f;
 
         if (MinecraftClient.getInstance().options.getMainArm().getValue() == Arm.LEFT) {
             ratio *= -1;
         }
-        if (MinecraftClient.getInstance().player.getStackInHand(Hand.OFF_HAND).getItem() instanceof FishingRodItem) {
+        if (player.getStackInHand(Hand.OFF_HAND).getItem() instanceof FishingRodItem) {
             ratio *= -1;
         }
 
-        return new Vector3f(ratio, 0f, 0f).rotateY(yaw / -180f * MathHelper.PI);
+        // Apply item acceleration when camera is moving
+        float h = MathHelper.lerp(getTickDelta(), player.lastRenderPitch, player.renderPitch);
+        float i = MathHelper.lerp(getTickDelta(), player.lastRenderYaw, player.renderYaw);
+
+        translate.x = ratio + (player.getYaw(getTickDelta()) - i) * 0.00011f;
+        translate.y = (player.getPitch(getTickDelta()) - h) * 0.0001f;
+        translate.z = 0;
+
+        translate.rotateY(player.getYaw(getTickDelta()) / -180f * MathHelper.PI);
     }
 }
