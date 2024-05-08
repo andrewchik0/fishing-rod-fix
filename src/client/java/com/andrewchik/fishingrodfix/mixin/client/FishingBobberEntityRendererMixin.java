@@ -74,11 +74,12 @@ public class FishingBobberEntityRendererMixin {
 
         // FOV corrections
         float fov = MinecraftClient.getInstance().options.getFov().getValue().floatValue();
-        float fovEffected = (float) MinecraftClient.getInstance().gameRenderer.getFov(MinecraftClient.getInstance().gameRenderer.getCamera(), getTickDelta(), true);
         ratio /= (70f - fov) / 180f + 1;
 
-        //float fovDiff = fovEffected - fov;
-        //ratio -= fovDiff / 1000f;
+        // TODO: add fov effects
+        // float fovEffected = (float) MinecraftClient.getInstance().gameRenderer.getFov(MinecraftClient.getInstance().gameRenderer.getCamera(), getTickDelta(), true);
+        // float fovDiff = fovEffected - fov;
+        // ratio -= fovDiff / 1000f;
 
         if (MinecraftClient.getInstance().options.getMainArm().getValue() == Arm.LEFT) {
             ratio *= -1;
@@ -91,8 +92,13 @@ public class FishingBobberEntityRendererMixin {
         float h = MathHelper.lerp(getTickDelta(), player.lastRenderPitch, player.renderPitch);
         float i = MathHelper.lerp(getTickDelta(), player.lastRenderYaw, player.renderYaw);
 
+        // Crouching animation
+        float crouch = 0;
+        if (player.isOnGround())
+            crouch = (float)(MinecraftClient.getInstance().gameRenderer.getCamera().getPos().y - player.getPos().y) - player.getStandingEyeHeight();
+
         translate.x = ratio + (player.getYaw(getTickDelta()) - i) * 0.00011f;
-        translate.y = (player.getPitch(getTickDelta()) - h) * 0.0001f;
+        translate.y = (player.getPitch(getTickDelta()) - h) * 0.0001f + crouch / 16f;
         translate.z = 0;
 
         translate.rotateY(player.getYaw(getTickDelta()) / -180f * MathHelper.PI);
