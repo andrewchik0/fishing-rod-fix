@@ -5,11 +5,11 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.entity.FishingBobberEntityRenderer;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.util.math.Vector3d;
 import net.minecraft.item.FishingRodItem;
 import net.minecraft.util.Arm;
 import net.minecraft.util.Hand;
-import net.minecraft.util.math.MathHelper;
-import org.joml.Vector3f;
+import net.minecraft.util.math.*;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,11 +19,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(FishingBobberEntityRenderer.class)
 public class FishingBobberEntityRendererMixin {
     @Unique
-    private static final Vector3f translate = new Vector3f();
+    private static final Vector3d translate = new Vector3d(0, 0, 0);
     @Unique
     private static int counter = 0;
 
-    @Inject(method = "Lnet/minecraft/client/render/entity/FishingBobberEntityRenderer;renderFishingLine(FFFLnet/minecraft/client/render/VertexConsumer;Lnet/minecraft/client/util/math/MatrixStack$Entry;FF)V", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "renderFishingLine(FFFLnet/minecraft/client/render/VertexConsumer;Lnet/minecraft/client/util/math/MatrixStack$Entry;FF)V", at = @At("HEAD"), cancellable = true)
     private static void renderFishingLine(float x, float y, float z, VertexConsumer buffer, MatrixStack.Entry matrices, float segmentStart, float segmentEnd, CallbackInfo ci) {
         float f = x * segmentStart;
         float g = y * (segmentStart * segmentStart + segmentStart) * 0.5F + 0.25F;
@@ -35,12 +35,15 @@ public class FishingBobberEntityRendererMixin {
         i /= l;
         j /= l;
         k /= l;
-        buffer.vertex(matrices.getPositionMatrix().translate(getTranslate()), f, g, h).color(0, 0, 0, 255).normal(matrices, i, j, k).next();
+        Vector3d translate = getTranslate();
+        Matrix4f matrix =  matrices.getPositionMatrix();
+        matrix.multiply(Matrix4f.translate((float) translate.x, (float) translate.y, (float) translate.z));
+        buffer.vertex(matrix, f, g, h).color(0, 0, 0, 255).normal(matrices.getNormalMatrix(), i, j, k).next();
         ci.cancel();
     }
 
     @Unique
-    private static Vector3f getTranslate() {
+    private static Vector3d getTranslate() {
         if (counter == 17) {
             calculateTranslate();
             counter = 0;
@@ -101,6 +104,9 @@ public class FishingBobberEntityRendererMixin {
         translate.y = (player.getPitch(getTickDelta()) - h) * 0.0001f + crouch / 16f;
         translate.z = 0;
 
-        translate.rotateY(player.getYaw(getTickDelta()) / -180f * MathHelper.PI);
+        Vec3d vec = new Vec3d(translate.x, translate.y, translate.z).rotateY(player.getYaw(getTickDelta()) / -180f * MathHelper.PI);
+        translate.x = vec.x;
+        translate.y = vec.y;
+        translate.z = vec.z;
     }
 }
