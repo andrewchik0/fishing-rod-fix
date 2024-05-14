@@ -23,7 +23,7 @@ public class FishingBobberEntityRendererMixin {
     @Unique
     private static int counter = 0;
 
-    @Inject(at = @At("HEAD"), method = "renderFishingLine", cancellable = true)
+    @Inject(method = "Lnet/minecraft/client/render/entity/FishingBobberEntityRenderer;renderFishingLine(FFFLnet/minecraft/client/render/VertexConsumer;Lnet/minecraft/client/util/math/MatrixStack$Entry;FF)V", at = @At("HEAD"), cancellable = true)
     private static void renderFishingLine(float x, float y, float z, VertexConsumer buffer, MatrixStack.Entry matrices, float segmentStart, float segmentEnd, CallbackInfo ci) {
         float f = x * segmentStart;
         float g = y * (segmentStart * segmentStart + segmentStart) * 0.5F + 0.25F;
@@ -35,7 +35,7 @@ public class FishingBobberEntityRendererMixin {
         i /= l;
         j /= l;
         k /= l;
-        buffer.vertex(matrices.getPositionMatrix().translate(getTranslate()), f, g, h).color(0, 0, 0, 255).normal(matrices.getNormalMatrix(), i, j, k).next();
+        buffer.vertex(matrices.getPositionMatrix().translate(getTranslate()), f, g, h).color(0, 0, 0, 255).normal(matrices, i, j, k).next();
         ci.cancel();
     }
 
