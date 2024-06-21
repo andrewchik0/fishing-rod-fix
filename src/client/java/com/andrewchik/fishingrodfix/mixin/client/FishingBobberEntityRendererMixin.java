@@ -35,7 +35,7 @@ public class FishingBobberEntityRendererMixin {
         i /= l;
         j /= l;
         k /= l;
-        buffer.vertex(matrices.getPositionMatrix().translate(getTranslate()), f, g, h).color(0, 0, 0, 255).normal(matrices, i, j, k).next();
+        buffer.vertex(matrices.getPositionMatrix().translate(getTranslate()), f, g, h).color(0, 0, 0, 255).normal(matrices, i, j, k);
         ci.cancel();
     }
 
@@ -51,7 +51,7 @@ public class FishingBobberEntityRendererMixin {
 
     @Unique
     private static float getTickDelta() {
-        return MinecraftClient.getInstance().isPaused() ? MinecraftClient.getInstance().pausedTickDelta : MinecraftClient.getInstance().renderTickCounter.tickDelta;
+        return MinecraftClient.getInstance().isPaused() ? MinecraftClient.getInstance().renderTickCounter.tickDelta : MinecraftClient.getInstance().renderTickCounter.tickDeltaBeforePause;
     }
 
     @Unique
