@@ -1,4 +1,6 @@
 # Fishing Rod fix
+![CurseForge Downloads](https://img.shields.io/curseforge/dt/1018847?logo=curseforge)
+![Modrinth Downloads](https://img.shields.io/modrinth/dt/x9ISUf1U?logo=modrinth)
 
 This mod provides fix for old minecraft bug.
 
