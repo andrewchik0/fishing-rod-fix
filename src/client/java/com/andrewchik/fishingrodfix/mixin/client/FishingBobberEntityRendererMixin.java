@@ -51,7 +51,7 @@ public class FishingBobberEntityRendererMixin {
 
     @Unique
     private static float getTickDelta() {
-        return MinecraftClient.getInstance().isPaused() ? MinecraftClient.getInstance().renderTickCounter.tickDelta : MinecraftClient.getInstance().renderTickCounter.tickDeltaBeforePause;
+        return MinecraftClient.getInstance().renderTickCounter.getDynamicDeltaTicks();
     }
 
     @Unique
