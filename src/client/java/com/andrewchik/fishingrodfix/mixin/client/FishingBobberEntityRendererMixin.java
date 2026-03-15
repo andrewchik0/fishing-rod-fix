@@ -41,11 +41,11 @@ public class FishingBobberEntityRendererMixin {
     @Inject(method = "Lnet/minecraft/client/render/entity/FishingBobberEntityRenderer;renderFishingLine(FFFLnet/minecraft/client/render/VertexConsumer;Lnet/minecraft/client/util/math/MatrixStack$Entry;FFF)V", at = @At("HEAD"), cancellable = true)
     private static void renderFishingLine(float x, float y, float z, VertexConsumer buffer, MatrixStack.Entry matrices, float segmentStart, float segmentEnd, float getMinimumLineWidth, CallbackInfo ci) {
         Vector3f t = getTranslate();
-        // Use (y - crouchOffset) for the catenary so the sag stays consistent during the
+        // Use (y + crouchOffset) for the catenary so the sag stays consistent during the
         // crouch animation: crouchOffset = camera_y - standing_eye_y ≤ 0 when crouching,
-        // so (y - crouchOffset) ≈ the standing y, keeping curvature constant.
+        // so (y + crouchOffset) ≈ the standing y, keeping curvature constant.
         // The linear crouchOffset*s term is not needed: at s=1 the endpoint is
-        //   (y - crouchOffset) + 0.25 + t.y  which correctly tracks the rod tip.
+        //   (y + crouchOffset) + 0.25 + t.y  which correctly tracks the rod tip.
         float yc = y + crouchOffset;
         float f = x * segmentStart                                          + t.x * segmentStart;
         float g = yc * (segmentStart * segmentStart + segmentStart) * CATENARY_SCALE + CATENARY_BOBBER_OFFSET + t.y * segmentStart;
