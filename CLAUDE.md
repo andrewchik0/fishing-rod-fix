@@ -43,3 +43,7 @@ This is a purely client-side Fabric mod with a single point of logic:
 ## Versioning
 
 Each Minecraft version lives on its own branch (e.g. `1.21.4`, `1.21.11`). Version numbers in `gradle.properties` (`minecraft_version`, `yarn_mappings`, `fabric_version`) must be updated together when porting to a new MC version. The `mod_version` in `gradle.properties` is independent of MC version.
+
+## Roles
+
+A new project role is available: `/port-version <mc_version>` — ports the mod (the v0.4 mixin) to a target Minecraft version, backport or forward-port. See `.claude/skills/port-version/SKILL.md`.
