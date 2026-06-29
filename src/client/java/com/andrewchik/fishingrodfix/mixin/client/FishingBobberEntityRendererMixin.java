@@ -15,15 +15,16 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Fixes the vanilla first-person fishing-line offset bug on Minecraft 1.21.5.
+ * Fixes the vanilla first-person fishing-line offset bug on Minecraft 1.21 and 1.21.1.
  *
- * <p>On 1.21.5 the world-space line origin is the value returned by {@code getHandPos}:
- * {@link FishingBobberEntityRenderer} computes the hand position there during
- * {@code updateRenderState} and stores the bobber&rarr;hand delta in the render state, which
- * {@code renderFishingLine} then draws as the catenary. Correcting {@code getHandPos}'s returned
- * point therefore shifts the rod-tip end of the line by exactly that amount &mdash; the same
- * approach as the 1.21.11 and 26.x builds (where the method is {@code getHandPos} /
- * {@code getPlayerHandPos}). The catenary itself is left untouched.
+ * <p>On 1.21 / 1.21.1 the world-space line origin is the value returned by {@code getHandPos}:
+ * {@link FishingBobberEntityRenderer}{@code .render} calls it for the local player and then draws
+ * the catenary from that hand point to the bobber via {@code renderFishingLine} (the renderer is
+ * still entity-based here &mdash; there is no render state yet, so the bobber&rarr;hand delta is
+ * computed inline). Correcting {@code getHandPos}'s returned point therefore shifts the rod-tip end
+ * of the line by exactly that amount &mdash; the same approach as the 1.21.5, 1.21.11 and 26.x
+ * builds (where the method is {@code getHandPos} / {@code getPlayerHandPos}). The catenary itself is
+ * left untouched.
  *
  * <p>The whole correction is derived from vanilla's own quantities and from projection geometry
  * &mdash; no tuned magic numbers &mdash; so it stays robust across renderer changes:
@@ -52,7 +53,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  *       exactly cancelling the jump.</li>
  * </ol>
  *
- * <p>Like the 1.21.11 build, 1.21.5 has no {@code Camera.getFov()}: the actual world FOV is the
+ * <p>Like the 1.21.11 build, 1.21.1 has no {@code Camera.getFov()}: the actual world FOV is the
  * options FOV times the smoothed {@code GameRenderer} fov multiplier (exposed via the access
  * widener), which is what the world &mdash; and therefore the line &mdash; is projected with.
  * (The only API difference from 1.21.11 is that the camera position getter is {@code Camera.getPos()}

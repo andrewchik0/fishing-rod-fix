@@ -11,11 +11,13 @@ base {
 }
 
 // Name the final remapped jar in build/libs as:
-//   fishingrodfix-<minecraft_version>-v<mod_version>.jar  (e.g. fishingrodfix-1.21.5-v0.5.jar)
-// Set on remapJar only, so fabric.mod.json's "version" field stays = mod_version.
-// Auto-updates per port because it reads the gradle.properties values.
+//   fishingrodfix-1.21-1.21.1-v<mod_version>.jar
+// This single build covers the whole 1.21-1.21.1 range (identical render API; see
+// depends.minecraft in fabric.mod.json), so the jar advertises the range rather than the
+// single build version (minecraft_version=1.21.1). Set on remapJar only, so fabric.mod.json's
+// "version" field stays = mod_version. mod_version stays property-driven.
 tasks.named('remapJar') {
-	archiveFileName = "${project.archives_base_name}-${project.minecraft_version}-v${project.mod_version}.jar"
+	archiveFileName = "${project.archives_base_name}-1.21-1.21.1-v${project.mod_version}.jar"
 }
 
 repositories {
