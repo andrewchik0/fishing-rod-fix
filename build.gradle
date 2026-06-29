@@ -10,6 +10,14 @@ base {
 	archivesName = project.archives_base_name
 }
 
+// Name the final remapped jar in build/libs as:
+//   fishingrodfix-<minecraft_version>-v<mod_version>.jar  (e.g. fishingrodfix-1.21.5-v0.5.jar)
+// Set on remapJar only, so fabric.mod.json's "version" field stays = mod_version.
+// Auto-updates per port because it reads the gradle.properties values.
+tasks.named('remapJar') {
+	archiveFileName = "${project.archives_base_name}-${project.minecraft_version}-v${project.mod_version}.jar"
+}
+
 repositories {
 	// Add repositories to retrieve artifacts from in here.
 	// You should only use this when depending on other mods because
