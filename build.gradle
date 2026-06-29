@@ -3,11 +3,21 @@ plugins {
 	id 'maven-publish'
 }
 
-version = "${project.minecraft_version}-${project.mod_version}"
+version = project.mod_version
 group = project.maven_group
 
 base {
 	archivesName = project.archives_base_name
+}
+
+// Name the final remapped jar in build/libs as:
+//   fishingrodfix-1.20-1.20.4-v<mod_version>.jar
+// This single build covers the whole 1.20-1.20.4 range (identical render API; see
+// depends.minecraft in fabric.mod.json), so the jar advertises the range rather than the
+// single build version (minecraft_version=1.20.4). Set on remapJar only, so fabric.mod.json's
+// "version" field stays = mod_version. mod_version stays property-driven.
+tasks.named('remapJar') {
+	archiveFileName = "${project.archives_base_name}-1.20-1.20.4-v${project.mod_version}.jar"
 }
 
 repositories {
