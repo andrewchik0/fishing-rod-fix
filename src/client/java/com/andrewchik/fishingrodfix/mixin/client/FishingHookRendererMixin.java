@@ -79,12 +79,20 @@ public class FishingHookRendererMixin {
             return;
         }
 
-        cir.setReturnValue(fishingrodfix$correct(mc, player, partialTicks, cir.getReturnValue()));
+        // The world-render camera. This is the same Camera vanilla's getPlayerHandPos uses
+        // (entityRenderDispatcher.camera); on 26.2 GameRenderer.getMainCamera() was removed,
+        // so we read it through the dispatcher. It is @Nullable but always set during the
+        // first-person world render where the line is drawn; bail out if it is somehow null.
+        Camera camera = mc.getEntityRenderDispatcher().camera;
+        if (camera == null) {
+            return;
+        }
+
+        cir.setReturnValue(fishingrodfix$correct(mc, camera, player, partialTicks, cir.getReturnValue()));
     }
 
     @Unique
-    private static Vec3 fishingrodfix$correct(Minecraft mc, LocalPlayer player, float partialTicks, Vec3 handPos) {
-        Camera camera = mc.gameRenderer.getMainCamera();
+    private static Vec3 fishingrodfix$correct(Minecraft mc, Camera camera, LocalPlayer player, float partialTicks, Vec3 handPos) {
         Vec3 eyePos = player.getEyePosition(partialTicks);
 
         // Orthonormal camera basis (world space). +right == -left.
