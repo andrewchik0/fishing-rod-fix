@@ -14,9 +14,9 @@ base {
 }
 
 // Name the final jar in build/libs as:
-//   fishingrodfix-<minecraft_version>-v<mod_version>.jar  (e.g. fishingrodfix-26.1.2-v0.4.jar)
+//   fishingrodfix-<minecraft_version>-v<mod_version>.jar  (e.g. fishingrodfix-26.1.2-v0.5.jar)
 // On unobfuscated MC there is no remapJar task, so the name is set on `jar`.
-// fabric.mod.json's "version" field stays = mod_version (0.4).
+// fabric.mod.json's "version" field stays = mod_version (0.5).
 tasks.named('jar') {
 	archiveFileName = "${project.archives_base_name}-${project.minecraft_version}-v${project.mod_version}.jar"
 }
