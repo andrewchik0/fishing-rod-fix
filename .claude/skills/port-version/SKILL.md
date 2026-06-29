@@ -176,10 +176,43 @@ onto it.
    - **The vanilla constants** referenced in comments (`field_33632` = 960f FOV
      scale, NDC_X `0.525`, near plane `0.05`, segment count `16`): confirm the
      segment count and FOV-scale constant still hold in the target's source.
-3. Re-express the v0.4 logic with the corrected signature/API. Keep the empirical
-   tuning constants (`YAW_SWAY_FACTOR`, `PITCH_SWAY_FACTOR`, `VANILLA_ROD_TIP_NDC_X`)
-   as-is initially; they are calibrated and only re-tuned if manual testing shows
-   the line is off (Step 7).
+3. Re-express the v0.4 logic with the corrected signature/API.
+4. **Verify the MATH against the target's real render source — do not assume any
+   formula or constant transfers.** The rendering internals churn between versions
+   and a formula that was correct on the reference branch can be silently wrong on
+   the target even though it compiles and the mixin applies (Step 7 only proves it
+   loads, never that the line is in the right place). For every quantity the fix
+   depends on, open the target's decompiled source and re-derive:
+   - **Where the line origin actually comes from.** On 26.1+ there is no
+     `renderFishingLine`; the origin is `FishingHookRenderer.getPlayerHandPos`
+     (world-space), so the fix became an `@Inject` at its `RETURN`, not a cancel.
+   - **Which FOV / aspect each thing is projected with.** The visible rod is drawn
+     in a *separate hand pass* at a **fixed `hudFov` (70° on 26.1, see
+     `Camera.calculateHudFov`)**, while the line is a world entity projected at the
+     **actual** FOV (`Camera.getFov()`, includes the sprint/speed modifier). Confirm
+     these per version — the old `fovMultiplier`/`lastFovMultiplier` fields were
+     replaced by `getFov()`.
+   - **Prefer deriving from vanilla's own quantities over empirical magic numbers.**
+     The v0.3/v0.4 `YAW_SWAY_FACTOR`/`PITCH_SWAY_FACTOR` (0.0001-ish) had no physical
+     basis and were simply *wrong* on 26.1 (overshoot). The robust fixes mirror what
+     vanilla actually does: the item sway is vanilla's own `(getViewXRot-xBob)*0.1°` /
+     `(getViewYRot-yBob)*0.1°` hand rotation (`ItemInHandRenderer.renderHandsWithItems`)
+     applied to the eye→rod-tip vector; the aspect/FOV correction is an exact
+     re-projection (rescale the view-space components by `tan(actualFov/2)/tan(baseFov/2)`
+     and `refAR/realAR`) in which the hand-calibration constants (`0.525`, `960`, near
+     plane) cancel out. A correction built from projection laws + vanilla constants
+     survives renderer churn; a tuned constant does not.
+   - **Crouch sag-jump** is real but its form changes: on 26.1 `getEyePosition` uses
+     the *stepped* `getEyeHeight()` while the camera uses a *smoothed* eye height, so
+     the fix is simply `cameraY - eyePosY` (0 when settled, non-zero only mid-animation).
+   - **Know when to stop.** A fully-correct fix for some effects (e.g. walk `bobView`/
+     `bobHurt`) would depend on unstable, version-churning render-state/avatar internals
+     — that would make the fix the *least* robust part of the mod. Prefer leaving such
+     an effect as a documented minor limitation over coupling to internals that break
+     next version.
+   Re-derive each formula from the target source, then let Step 9 manual testing
+   confirm placement; if the line is off, fix the derivation, do not just re-tune a
+   constant.
 
 ### Step 5 — Update the access widener
 `src/main/resources/fishingrodfix.accesswidener` must list exactly the fields the
