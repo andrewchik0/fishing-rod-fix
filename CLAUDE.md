@@ -46,4 +46,4 @@ Each Minecraft version lives on its own branch (e.g. `1.21.4`, `1.21.11`). Versi
 
 ## Roles
 
-A new project role is available: `/port-version <mc_version>` — ports the mod (the v0.4 mixin) to a target Minecraft version, backport or forward-port. See `.claude/skills/port-version/SKILL.md`.
+A new project role is available: `/port-version <mc_version>` — ports the mod (the current reference fix from the default branch) to a target Minecraft version, backport or forward-port. See `.claude/skills/port-version/SKILL.md`.
