@@ -41,7 +41,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  *       the projection laws and the rod's 16:9 calibration aspect remain. This also keeps
  *       the correct hand side (main/off hand, left-handed), since that sign is already in
  *       vanilla's vector.</li>
- *   <li><b>Item sway.</b> {@code ItemInHandRenderer.renderHandsWithItems} rotates the whole
+ *   <li><b>Item sway.</b> {@code FirstPersonHandsAndItemsRenderer.submitHandsWithItems} (26.3+;
+ *       {@code ItemInHandRenderer} before) rotates the whole
  *       first-person hand about the view axes by {@code (getViewXRot-xBob)*0.1deg} and
  *       {@code (getViewYRot-yBob)*0.1deg}. A rotation about the eye by angle {@code a} shifts
  *       a point's on-screen position by exactly {@code a}, independent of distance/FOV, so we
@@ -60,7 +61,8 @@ public class FishingHookRendererMixin {
     // at NDC x 0.525 there). Fundamental to the hand model, not a tuning knob.
     @Unique private static final float REFERENCE_ASPECT_RATIO    = 16f / 9f;
 
-    // Vanilla's own item-sway factor, from ItemInHandRenderer.renderHandsWithItems().
+    // Vanilla's own item-sway factor, from FirstPersonHandsAndItemsRenderer.submitHandsWithItems()
+    // (26.3+; ItemInHandRenderer before), fed by FirstPersonHandsAndItems.extractRenderState().
     // Not a tuning constant: if Mojang changes the sway, mirror their value here.
     @Unique private static final float VANILLA_ITEM_SWAY_DEGREES = 0.1f;
 

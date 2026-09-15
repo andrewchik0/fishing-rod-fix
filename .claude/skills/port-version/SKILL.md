@@ -445,9 +445,9 @@ Extend this as you learn more; never trust it over the decompiled source.
 | Tick delta | `renderTickCounter`/`pausedTickDelta` (AW) | `renderTickCounter.tickDelta`/`…BeforePause`+`isPaused()` | method `tickProgress` param | method `partialTicks` param |
 | Eye / camera / player pos | `getPos()` | `getPos()` | `getCameraPosVec(t)` / `getCameraPos()` / `getEntityPos()` | `getEyePosition(t)` / `camera.position()` / `getEntityPos()` |
 | Camera basis | `forwardVector/upVector/leftVector` (Mojang-ish) | yarn `getHorizontalPlane/getVerticalPlane/getDiagonalPlane` | yarn `getHorizontalPlane/getVerticalPlane/getDiagonalPlane` | Mojang `forwardVector/upVector/leftVector` |
-| Sway source | item-renderer `*0.1°` | item-renderer `*0.1°` | `HeldItemRenderer` `(getPitch-renderPitch)*0.1°`/`(getYaw-renderYaw)*0.1°` | `ItemInHandRenderer` `(getViewXRot-xBob)*0.1°`/`(getViewYRot-yBob)*0.1°` |
+| Sway source | item-renderer `*0.1°` | item-renderer `*0.1°` | `HeldItemRenderer` `(getPitch-renderPitch)*0.1°`/`(getYaw-renderYaw)*0.1°` | `ItemInHandRenderer` (26.1–26.2) → `FirstPersonHandsAndItemsRenderer.submitHandsWithItems` fed by `FirstPersonHandsAndItems.extractRenderState` (26.3); both `(getViewXRot-xBob)*0.1°`/`(getViewYRot-yBob)*0.1°` |
 | Access widener | `renderTickCounter`+`pausedTickDelta`+`getFov` | `tickDelta`/`tickDeltaBeforePause` | `GameRenderer.fovMultiplier`/`lastFovMultiplier` | none |
-| Loom / Java | 1.6-SNAPSHOT / 17 | 1.9-SNAPSHOT / 17 | 1.14-SNAPSHOT / 17 (run JDK 21) | 1.17-SNAPSHOT / 17 (run JDK 21+) |
+| Loom / Java | 1.6-SNAPSHOT / 17 | 1.9-SNAPSHOT / 17 | 1.14-SNAPSHOT / 17 (run JDK 21) | 1.17-SNAPSHOT / release 25 (run JDK 25); Gradle 9.5.1 (26.1–26.2) → 9.6.0 (26.3) |
 
 **1.20.4 coordinates (most-played target, from `origin/1.20`):**
 `minecraft_version=1.20.4`, `yarn_mappings=1.20.4+build.3`,
