@@ -3,34 +3,22 @@
 	"id": "fishingrodfix",
 	"version": "${version}",
 	"name": "Fishing rod fix",
-	"description": "This mod provides fix for fishing line rendering bug.",
+	"description": "Fixes the first-person fishing line so it starts at the rod tip, and hides the line of a hook whose rod was put away.",
 	"authors": [
 		"andrewchik"
 	],
 	"contact": {
 		"sources": "https://github.com/andrewchik0/fishing-rod-fix"
 	},
-	"license": "MIT-LICENSE",
+	"license": "MIT",
 	"icon": "assets/fishingrodfix/icon.png",
-	"environment": "*",
-	"entrypoints": {
-		"client": [
-			"com.andrewchik.fishingrodfix.FishingRodFixClient"
-		]
-	},
+	"environment": "client",
 	"mixins": [
-		{
-			"config": "fishingrodfix.client.mixins.json",
-			"environment": "client"
-		}
+		"fishingrodfix.client.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=0.19.0",
 		"minecraft": "~26.3",
-		"java": ">=25",
-		"fabric-api": "*"
-	},
-	"suggests": {
-		"another-mod": "*"
+		"java": ">=25"
 	}
 }

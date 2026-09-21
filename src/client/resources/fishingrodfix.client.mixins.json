@@ -1,11 +1,19 @@
 {
   "required": true,
+  "minVersion": "0.8",
   "package": "com.andrewchik.fishingrodfix.mixin.client",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "FishingHookRendererMixin"
+    "CameraAccessor",
+    "FirstPersonHandsAndItemsRendererMixin",
+    "FishingHookMixin",
+    "FishingHookRendererMixin",
+    "FishingHookRenderStateMixin",
+    "GameRendererInvoker",
+    "GameRendererMixin",
+    "SpriteContentsAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
-	}
+  }
 }
