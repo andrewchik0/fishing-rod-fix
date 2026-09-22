@@ -1,5 +1,8 @@
 plugins {
-	id 'fabric-loom' version '1.14-SNAPSHOT'
+	// Minecraft 1.21.11 is obfuscated -> the remapping Loom variant (net.fabricmc.fabric-loom-remap):
+	// the code compiles against yarn names and Loom remaps it to intermediary; the deliverable is the
+	// remapJar output.
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
 	id 'maven-publish'
 }
 
@@ -10,27 +13,11 @@ base {
 	archivesName = project.archives_base_name
 }
 
-// Name the final remapped jar in build/libs as:
-//   fishingrodfix-<minecraft_version>-v<mod_version>.jar  (e.g. fishingrodfix-1.21.11-v0.4.jar)
-// Set on remapJar only, so fabric.mod.json's "version" field stays = mod_version (0.4).
-// Auto-updates per port because it reads the gradle.properties values.
-tasks.named('remapJar') {
-	archiveFileName = "${project.archives_base_name}-${project.minecraft_version}-v${project.mod_version}.jar"
-}
-
-repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
-}
-
 loom {
 	splitEnvironmentSourceSets()
 
 	mods {
-		"modid" {
+		"fishingrodfix" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}
@@ -38,9 +25,7 @@ loom {
 
 }
 
-loom {
-	accessWidenerPath = file("src/main/resources/fishingrodfix.accesswidener")
-}
+// No access widener: the private members the code reads go through mixin @Accessor/@Invoker.
 
 dependencies {
 	// To change the versions see the gradle.properties file
@@ -48,9 +33,8 @@ dependencies {
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-	// Fabric API. This is technically optional, but you probably want it anyway.
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
+	// No Fabric API: the mod doesn't use it (MixinExtras ships with Fabric Loader), and leaving it
+	// off the classpath keeps compile and runClient honest about running without it.
 }
 
 processResources {
@@ -62,17 +46,16 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 17
+	it.options.release = 21
 }
 
 java {
-	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-	// if it is present.
-	// If you remove this line, sources will not be generated.
+	// Also builds fishingrodfix-<mod_version>-sources.jar alongside the mod jar (Loom attaches it to
+	// remapSourcesJar and to build).
 	withSourcesJar()
 
-	sourceCompatibility = JavaVersion.VERSION_17
-	targetCompatibility = JavaVersion.VERSION_17
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
 }
 
 jar {
@@ -81,6 +64,14 @@ jar {
 	from("LICENSE") {
 		rename { "${it}_${inputs.properties.archivesName}"}
 	}
+}
+
+// Name the final remapped jar in build/libs as:
+//   fishingrodfix-<minecraft_version>-v<mod_version>.jar
+// Set on remapJar only (jar above builds the dev jar), so fabric.mod.json's "version" field stays
+// = mod_version.
+tasks.named('remapJar') {
+	archiveFileName = "${project.archives_base_name}-${project.minecraft_version}-v${project.mod_version}.jar"
 }
 
 // configure the maven publication
