@@ -49,7 +49,7 @@ Example — the shape on 26.x when this skill was written (verify, it drifts):
 | `GameRenderer.extract` HEAD → `HandPass.onFrameExtract` | F3 | samples the HUD and the hand gate every frame, fishing or not |
 | `submitArmWithItem` INVOKE → `HandPass.onHandPass` | F3 | ≤ 2 per frame, one static write |
 | `FishingHookRenderer.extractRenderState` HEAD / TAIL → `FishingLineVisibility` | F5 | every player's hook; Iris' shadow pass extracts hooks a second time |
-| `getPlayerHandPos` first-person `add(Vec3)` → `FishingLineOrigin.correct` | F4 | the heavy path: pose, sway, bob, projection |
+| `getPlayerHandPos` first-person `add(Vec3)` → `FishingLineOrigin.correct` | F4 | the heavy path: pose, sway, bob, projection; worked out once per frame, later extractions (Iris' shadow pass) reuse it. Measured 2026-09-22 with a scratch harness on the real JOML/PoseStack classes: ~120 ns and 576 B per computation without escape analysis (144 B with it) |
 | `getPlayerHandPos` third-person `add(DDD)` → `ThirdPersonLineOrigin` (if the branch has it) | F5 | every player's hook; watch for render-state extraction or allocation per hook |
 | `FishingHookRenderer.submit` `submitCustomGeometry` → visibility condition | F5 | |
 | `FirstPersonRod.anchorUv` → sprite measurement | F1 | cached per sprite identity; runs inside the first corrected frame after a reload |
@@ -102,7 +102,10 @@ On any F3–F5 path:
 - I/O or resource-manager access; reading pixels outside the cached one-off measurement;
 - work for hooks the result can't affect (e.g. computing a first-person origin for another player's
   hook), scanning all entities or players;
-- allocation that scales with anything (sprite size, hook count).
+- allocation that scales with anything (sprite size, hook count);
+- a strong reference from static state or a render state to an entity, a level or another mod's
+  per-pipeline object that outlives its use: other mods keep render states past their frame (Iris'
+  shadow pass keeps its last frame's, also after a disconnect).
 
 JIT hazards:
 

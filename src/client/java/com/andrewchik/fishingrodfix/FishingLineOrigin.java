@@ -45,7 +45,9 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * {@code GameRenderer.extractCamera} both run before the level's entities). The world FOV is read from
  * the extracted projection {@code renderLevel} draws the world with (in vanilla the camera's FOV), so
  * mods that change the projection itself, not only the camera's FOV, are followed too; the camera
- * pose comes from the live {@code Camera} that frame was set up from.
+ * pose comes from the live {@code Camera} that frame was set up from. All of it is this frame's, so
+ * the origin is worked out once per frame and reused by further extractions of the local player's
+ * hooks in it (Iris' shadow pass extracts them a second time).
  * <ol>
  *   <li><b>Rod pose.</b> The drawn rod's hand (or, while a rod is held but none is drawn yet, the
  *       hand it was last drawn in), its equip/re-equip dip (after every cast and reel-in) and its
@@ -114,13 +116,18 @@ public final class FishingLineOrigin {
     // dimension change or world join (a new ClientLevel). Weak, so a stale level isn't kept alive.
     private static WeakReference<ClientLevel> disabledIn = new WeakReference<>(null);
 
+    // This frame's result (null: vanilla's value), for every later extraction of the local player's
+    // hooks in the same HandPass frame: Iris' shadow pass extracts the hook a second time, from the
+    // same frame's state, so the result can't differ. No reference to the player or the world.
+    private static long originFrame = Long.MIN_VALUE;
+    private static @Nullable Vec3 frameOrigin;
+
     // The HandPass hooks are optional (require = 0), so a failed one is reported here, once. A hand
     // pass that is never seen only counts as failed after this many frames of fishing in first
     // person with the HUD shown (~20 s at 60 fps): until then a hand may simply not have been drawn.
-    // Counted per frame, not per call (Iris' shadow pass extracts the hook a second time).
+    // Counted once per frame, as compute runs.
     private static final int NO_HAND_PASS_WARNING_FRAMES = 1200;
     private static int framesWithoutHandPass;
-    private static long lastFrameWithoutHandPass;
     private static boolean handPassWarningLogged;
 
     private FishingLineOrigin() {}
@@ -141,8 +148,13 @@ public final class FishingLineOrigin {
             if (camera == null || camera.entity() != player) {
                 return handPos;
             }
-            Vec3 origin = compute(mc, camera, player);
-            return origin != null ? origin : handPos;
+            // Once per frame (while frames are counted; without, compute keeps vanilla's value).
+            long frame = HandPass.frame();
+            if (frame != originFrame || !HandPass.framesCounted()) {
+                frameOrigin = compute(mc, camera, player);
+                originFrame = frame;
+            }
+            return frameOrigin != null ? frameOrigin : handPos;
         } catch (RuntimeException | LinkageError e) {
             disabledIn = new WeakReference<>(mc.level);
             LOGGER.error("Fishing line correction failed, falling back to vanilla until the next world or dimension", e);
@@ -288,10 +300,9 @@ public final class FishingLineOrigin {
             return;
         }
         // Only frames where the sampled gate would draw a hand count.
-        if (HandPass.handPassSeen() || !HandPass.vanillaDrawsHand() || HandPass.frame() == lastFrameWithoutHandPass) {
+        if (HandPass.handPassSeen() || !HandPass.vanillaDrawsHand()) {
             return;
         }
-        lastFrameWithoutHandPass = HandPass.frame();
         if (++framesWithoutHandPass >= NO_HAND_PASS_WARNING_FRAMES) {
             handPassWarningLogged = true;
             LOGGER.warn("No first-person hand pass seen while fishing (its FirstPersonHandsAndItemsRenderer hook didn't apply, "

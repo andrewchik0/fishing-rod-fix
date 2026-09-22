@@ -68,7 +68,9 @@ public final class ThirdPersonLineOrigin {
     /**
      * Mixed into {@code FishingHookRenderState}: the owner whose drawn rod the line moves onto at
      * submission (null for a line on the first-person rod, or with no player owner) and the owner's
-     * partial tick.
+     * partial tick. The owner is dropped when the state is submitted: other mods may keep render
+     * states past their frame (Iris' shadow pass keeps its last frame's until its next one, also
+     * after a disconnect), and the owner would keep its world alive.
      */
     public interface HookState {
         @Nullable AbstractClientPlayer fishingrodfix$bodyRodOwner();
@@ -117,7 +119,8 @@ public final class ThirdPersonLineOrigin {
 
     // The pass of the latest hook submitted (its collector and frame), with that hook's world
     // position and the inverse of its pose: together they turn a point in the pass's space into the
-    // world, for a rod drawn after its hook.
+    // world, for a rod drawn after its hook. Forgotten at the next frame's start: the collector may
+    // be a shadow pass's, whose pipeline Iris replaces on a dimension change or shader reload.
     private static @Nullable SubmitNodeCollector passCollector;
     private static long passFrame;
     private static double passHookX;
@@ -126,7 +129,9 @@ public final class ThirdPersonLineOrigin {
     private static final Matrix4f passInverse = new Matrix4f();
     private static final Vector3f scratch = new Vector3f();
 
-    // The line offset for the hook being submitted, written into submit's xa/ya/za locals.
+    // The line offset for the hook being submitted, written into submit's xa/ya/za locals. Cleared
+    // once za is written, and at the next frame's start in case another mod cut submit short, so no
+    // render state outlives its submission here.
     private static @Nullable FishingHookRenderState pendingState;
     private static final Vector3f pendingOffset = new Vector3f();
 
@@ -136,6 +141,12 @@ public final class ThirdPersonLineOrigin {
     private static WeakReference<ClientLevel> disabledIn = new WeakReference<>(null);
 
     private ThirdPersonLineOrigin() {}
+
+    /** Called at the start of every frame ({@code GameRenderer.extract}): forgets the last frame's pass. */
+    public static void onFrameStart() {
+        passCollector = null;
+        pendingState = null;
+    }
 
     /**
      * Whether vanilla draws the local player's own body while it is the first-person camera (as
@@ -236,8 +247,14 @@ public final class ThirdPersonLineOrigin {
         pendingState = null;
         HookState hookState = (HookState) state;
         AbstractClientPlayer owner = hookState.fishingrodfix$bodyRodOwner();
+        if (owner == null) {
+            return;
+        }
+        float ownerPartialTicks = hookState.fishingrodfix$ownerPartialTicks();
+        // Only this submission needs the owner (see HookState).
+        hookState.fishingrodfix$setBodyRodOwner(null, 0f);
         Minecraft mc = Minecraft.getInstance();
-        if (owner == null || disabledIn.get() == mc.level) {
+        if (disabledIn.get() == mc.level) {
             return;
         }
         try {
@@ -258,7 +275,7 @@ public final class ThirdPersonLineOrigin {
                 local = passInverse.transformPosition(rod.tip, scratch);
                 remember(rod, state.x + local.x, state.y + local.y, state.z + local.z);
             } else {
-                local = remembered(owner, rod, hookState.fishingrodfix$ownerPartialTicks(), state);
+                local = remembered(owner, rod, ownerPartialTicks, state);
                 if (local == null) {
                     return;
                 }
@@ -277,7 +294,14 @@ public final class ThirdPersonLineOrigin {
      * the one {@link #onHookSubmitted} worked out, or vanilla's {@code value}.
      */
     public static float lineOffset(FishingHookRenderState state, int axis, float value) {
-        return state == pendingState ? pendingOffset.get(axis) : value;
+        if (state != pendingState) {
+            return value;
+        }
+        // za is submit's last offset local.
+        if (axis == 2) {
+            pendingState = null;
+        }
+        return pendingOffset.get(axis);
     }
 
     /**

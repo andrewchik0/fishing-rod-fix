@@ -72,7 +72,7 @@ branch it was checked on: the mod may not exist for this version, or may have ch
 | Mod | What it changes that matters | Status |
 |---|---|---|
 | Sodium | replaces terrain rendering; entities still go through vanilla's renderers | U: check that hook extraction and `submit` still run through `FishingHookRenderer` |
-| Iris (+ any shader pack) | draws the hand with its own hand renderer; a shadow pass extracts hooks a second time; wraps the nausea warp | H: its hand renderer reaches the hand-pass mark; frames are counted per frame, not per call (`HandPass`, `FishingLineOrigin`). L: Clearviews + Iris' warp wrapper when Iris wins the load order |
+| Iris (+ any shader pack) | draws the hand with its own hand renderer; a shadow pass extracts hooks a second time, into its own `LevelRenderState` and `SubmitNodeStorage`, and keeps that frame's render states until its next shadow frame (also after a disconnect: the pipeline survives it); wraps the nausea warp | H: its hand renderer reaches the hand-pass mark; frames are counted per frame, not per call (`HandPass`), and the first-person origin is worked out once per frame and reused by the shadow extraction (`FishingLineOrigin`); a body-held hook's render state drops its owner at `submit` (`ThirdPersonLineOrigin`). L: Clearviews + Iris' warp wrapper when Iris wins the load order: `MixinModelViewBobbing` (not `MixinGameRenderer`) `@WrapOperation`s `renderLevel`'s warp `Matrix4f.rotate`/`scale`, the calls Clearviews wraps, and with a pack in use moves bob and warp into the model view without calling the original (Iris 26.2 and 26.3 branches, checked 2026-09-22) |
 | Sodium Extra, Reese's Sodium Options | option toggles | U: check whether any toggle touches view bob, FOV or the hand |
 | ImmediatelyFast | batches immediate-mode rendering | U: the line is a deferred custom-geometry submit |
 | Entity Culling, MoreCulling | skip entities that aren't visible | U: a culled hook isn't extracted, like vanilla; the visibility decision rides on the render state |
@@ -98,7 +98,7 @@ branch it was checked on: the mod may not exist for this version, or may have ch
 | Vivecraft | VR: the rod follows a tracked controller and it has its own line origin | U, high risk: check its changes to `FishingHookRenderer` against our required injector |
 | Tweakeroo | world-only view-bob toggle; freecam | L: the toggle. U: its freecam |
 | BetterHandBobbing, View Bobbing Options, No Screen Bobbing, ShakeTweaks | bob one pass differently from the other | L |
-| Clearviews 2.x (`clearviews`) | removes the nausea warp from the world pass | H: the warp isn't undone (assumes "Disable Nausea" on, its default). L: with it off |
+| Clearviews 2.x (`clearviews`) | removes the nausea warp from the world pass | H: the warp isn't undone (assumes "Disable Nausea" on, its default). L: with it off. 26.2 (2.1.7): `@WrapOperation` on `renderLevel`'s warp `Matrix4f.rotate`/`scale`, `disableNausea` defaults to true; no 26.3 build yet (2026-09-22) |
 | Clearview 1.x (`clearview`) | removes the nausea effect client-side | H: nothing to special-case |
 | Anti-nausea in Meteor, Wurst, LiquidBounce | drop the warp without Clearviews' id | L |
 | Pixelshot | large screenshots flag only the render state; its orthographic view replaces only the world pass's copy of the projection | H: a large screenshot behaves like F1. Not handled: the ortho view isn't seen (noted in `FishingLineOrigin`, not in `CLAUDE.md`) |
