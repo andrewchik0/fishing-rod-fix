@@ -722,8 +722,17 @@ across it. Before splitting work into multiple branches:
   Step 7), so a descriptor match alone proves nothing. Then fish once on each
   covered version. If everything is identical, ship
   **one** build and widen `depends.minecraft` to a range (this repo already did
-  `>=1.21 <1.21.2` covering 1.21–1.21.1, `>=1.20 <=1.20.4` covering 1.20–1.20.4, etc.). If they differ, they need
+  `>=1.21 <1.21.2` covering 1.21–1.21.1, `>=1.20 <=1.20.4` covering 1.20–1.20.4,
+  `>=26.1 <=26.1.2` covering 26.1–26.1.2, etc.). If they differ, they need
   separate branches/builds.
+- Unobfuscated targets (26.1+) allow a stronger check than descriptors: fetch each
+  version's client jar from Mojang's version manifest and diff the jars entry by entry
+  (SHA-1 per class). If no class the mod references, none of their supertypes and none
+  of the rod assets differ, the whole API is identical by construction. 26.1 → 26.1.2
+  (checked 2026-09-22): only `SharedConstants`, `DetectedVersion`, `Checkbox` (+ inner
+  classes), `AbstractReportScreen` (+ inner), `PlayerEntry` and
+  `ServerGamePacketListenerImpl` changed, plus `version.json` and structure NBTs; same
+  107 libraries, Java 25 and launcher JVM arguments.
 - Prefer targeting the **latest patch** of the current line and covering earlier
   patches via the range when the API matches.
 - State clearly which versions a given build actually covers — never silently
@@ -959,7 +968,7 @@ Extend this as you learn more; never trust it over the decompiled source.
 | Rod-holding arm | none — inline `isOf(Items.FISHING_ROD)` | verify (1.21–1.21.1 have none; 1.21.5+ checks `instanceof FishingRodItem`) | `getArmHoldingRod` | `FishingHookRenderer.getHoldingArm` |
 | Rod sprite | block atlas (`getSpriteAtlas(BLOCK_ATLAS_TEXTURE)`, by texture id) | block atlas | items atlas `getAtlasTexture(Atlases.ITEMS)` (atlas definition id, not the texture path) | items atlas `getAtlasOrThrow(AtlasIds.ITEMS)` |
 | Sprite frames / pixels | no `isAnimated` (null-check the `animation` field via `@Accessor`); `getDistinctFrameCount()` (`IntStream`, `[1]` for a static sprite); image field `image`; `NativeImage.getColor` (ABGR, alpha still the top byte) | 1.21.4: as 1.20.4 (verify); 1.21.5: `getColorArgb` (ARGB; `getColor` is private) | `isAnimated()`; `getDistinctFrameCount()`; field `image`; `getColorArgb` | `isAnimated()`; `getUniqueFrames()` (`IntList.of(1)` for a static sprite); field `originalImage`; `getPixel` (ARGB) |
-| Vanilla rod assets | `fishing_rod_cast.png` alpha mask + `handheld_rod.json` identical to 26.3 (verified 1.20.4, 1.21, 1.21.1, 1.21.5, 1.21.11, 26.1.2, 26.2, 26.3) | same | same | same |
+| Vanilla rod assets | `fishing_rod_cast.png` alpha mask + `handheld_rod.json` identical to 26.3 (verified 1.20.4, 1.21, 1.21.1, 1.21.5, 1.21.11, 26.1, 26.1.1, 26.1.2, 26.2, 26.3) | same | same | same |
 | Injected descriptor | name only: `"renderFishingLine"` | `renderFishingLine(…FF)V` | `getHandPos(L…PlayerEntity;FF)L…Vec3d;` | `getPlayerHandPos(L…Player;FF)L…Vec3;` |
 | Line emit path | direct vertex | direct vertex | deferred `submit` | deferred `submit` |
 | Vertex emit (strategy B only) | `.color(0,0,0,255).normal(getNormalMatrix(),…).next()` | `.color(int).normal(matrices,…)` (1.21, 1.21.5 checked) | `.color(0xFF000000).normal(matrices,…).lineWidth(w)` | n/a (no `renderFishingLine`) |

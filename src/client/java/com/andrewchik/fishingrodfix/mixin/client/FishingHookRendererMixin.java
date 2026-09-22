@@ -1,131 +1,161 @@
 package com.andrewchik.fishingrodfix.mixin.client;
 
-import net.minecraft.client.Camera;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.player.LocalPlayer;
+import com.andrewchik.fishingrodfix.FishingLineOrigin;
+import com.andrewchik.fishingrodfix.FishingLineVisibility;
+import com.andrewchik.fishingrodfix.ThirdPersonLineOrigin;
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
+import com.llamalad7.mixinextras.sugar.Local;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.FishingHookRenderer;
-import net.minecraft.util.Mth;
+import net.minecraft.client.renderer.entity.state.FishingHookRenderState;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.FishingHook;
 import net.minecraft.world.phys.Vec3;
-import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Fixes the vanilla first-person fishing-line offset bug on Minecraft 26.1+.
+ * Hooks the fishing line origin (the logic lives in {@link FishingLineOrigin} for the first-person rod
+ * and in {@link ThirdPersonLineOrigin} for a rod held by a player's body) and hides the line of a hook
+ * whose rod has left its owner's hands ({@link FishingLineVisibility}).
  *
- * <p>Minecraft 26.1 is the first unobfuscated release (Yarn/Intermediary were
- * discontinued after 1.21.11) and the fishing-line render path was restructured: there
- * is no longer a {@code renderFishingLine} method to cancel. The line is emitted through
- * a deferred render-graph {@code submit}, and the world-space line origin is the value
- * returned by {@link FishingHookRenderer} {@code getPlayerHandPos}. So instead of
- * redrawing the line, we correct that returned hand position in first person.
- *
- * <p>The whole correction is derived from vanilla's own quantities and from projection
- * geometry &mdash; no tuned magic numbers &mdash; so it stays robust across Mojang's
- * renderer changes:
- * <ol>
- *   <li><b>Aspect ratio + FOV (exact).</b> The visible rod is drawn in a separate hand
- *       pass at a <em>fixed</em> {@code 70deg} FOV ({@code Camera.calculateHudFov}) and the
- *       real window aspect ratio, while the line (a world point) is projected by the
- *       world's <em>actual</em> FOV (options FOV times the sprint/speed modifier).
- *       {@code getPlayerHandPos} instead builds the origin at the options FOV and real
- *       aspect ratio. We re-project: decompose the eye&rarr;rod-tip vector along the camera
- *       axes and rescale its horizontal component by
- *       {@code (16:9 / realAspect) * tan(actualFov/2)/tan(baseFov/2)} and its vertical
- *       component by {@code tan(actualFov/2)/tan(baseFov/2)}. The hand-calibration
- *       constants ({@code 0.525}, {@code -0.1}) and the {@code 960} scale cancel out; only
- *       the projection laws and the rod's 16:9 calibration aspect remain. This also keeps
- *       the correct hand side (main/off hand, left-handed), since that sign is already in
- *       vanilla's vector.</li>
- *   <li><b>Item sway.</b> {@code ItemInHandRenderer.renderHandsWithItems} rotates the whole
- *       first-person hand about the view axes by {@code (getViewXRot-xBob)*0.1deg} and
- *       {@code (getViewYRot-yBob)*0.1deg}. A rotation about the eye by angle {@code a} shifts
- *       a point's on-screen position by exactly {@code a}, independent of distance/FOV, so we
- *       rotate the eye&rarr;rod-tip vector by the same angles about the same camera axes; the
- *       line origin then tracks the swaying rod tip by construction.</li>
- *   <li><b>Crouch sag-jump.</b> {@code getEyePosition} anchors the line using the
- *       <em>stepped</em> {@code getEyeHeight()} (it jumps on the pose change) while the camera
- *       sits at a <em>smoothed</em> eye height; their difference {@code cameraY-eyePosY} is 0
- *       once settled and non-zero only during the crouch animation, exactly cancelling the
- *       jump.</li>
- * </ol>
+ * <p>On 26.x the line is a deferred {@code submitCustomGeometry} whose origin offset
+ * {@code extractRenderState} takes from {@code getPlayerHandPos}. For the first-person rod we modify
+ * the value of that method's only {@code Vec3.add(Vec3)} call,
+ * {@code owner.getEyePosition(partialTicks).add(viewVec)}, which exists only in its first-person branch
+ * ({@code allow = 1} turns a second match into a load failure). Hooking the branch's result rather than
+ * the method's return leaves the players other mods send down the third-person branch (First Person
+ * Model and Real Camera, while they draw the local player's body) to the body-held rod, and MixinExtras
+ * chains us with other mods that modify the same value. A body-held rod's line is placed at
+ * {@code submit}, where the rod drawn earlier in the same pass is known: straight into the offset
+ * locals {@code submit} reads, so {@code lineOriginOffset} keeps its extracted value.
  */
 @Mixin(FishingHookRenderer.class)
 public class FishingHookRendererMixin {
-    // The aspect ratio at which the first-person rod model is calibrated (its rod tip sits
-    // at NDC x 0.525 there). Fundamental to the hand model, not a tuning knob.
-    @Unique private static final float REFERENCE_ASPECT_RATIO    = 16f / 9f;
-
-    // Vanilla's own item-sway factor, from ItemInHandRenderer.renderHandsWithItems().
-    // Not a tuning constant: if Mojang changes the sway, mirror their value here.
-    @Unique private static final float VANILLA_ITEM_SWAY_DEGREES = 0.1f;
-
-    @Inject(
+    @ModifyExpressionValue(
         method = "getPlayerHandPos(Lnet/minecraft/world/entity/player/Player;FF)Lnet/minecraft/world/phys/Vec3;",
-        at = @At("RETURN"),
-        cancellable = true
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/world/phys/Vec3;add(Lnet/minecraft/world/phys/Vec3;)Lnet/minecraft/world/phys/Vec3;"),
+        allow = 1
     )
-    private void fishingrodfix$correctHandPos(Player owner, float swing, float partialTicks, CallbackInfoReturnable<Vec3> cir) {
-        Minecraft mc = Minecraft.getInstance();
-        LocalPlayer player = mc.player;
-
-        // Only the local player's first-person line origin is mis-placed; the third-person
-        // branch (and other players) already match their visible rod, so leave them alone.
-        if (player == null || owner != player || !mc.options.getCameraType().isFirstPerson()) {
-            return;
+    private Vec3 fishingrodfix$correctFirstPersonOrigin(Vec3 handPos, @Local(argsOnly = true) Player owner) {
+        // Asleep (or with a detached camera) vanilla draws the player's own body, rod in hand: the line
+        // belongs on that rod (placed at submit by ThirdPersonLineOrigin), not the first-person one.
+        if (ThirdPersonLineOrigin.bodyDrawnInFirstPerson(owner)) {
+            FishingLineVisibility.onFirstPersonOrigin(false);
+            return handPos;
         }
-
-        cir.setReturnValue(fishingrodfix$correct(mc, player, partialTicks, cir.getReturnValue()));
+        Vec3 origin = FishingLineOrigin.correct(handPos, owner);
+        // Every fallback returns handPos itself. Where FishingLineOrigin keeps vanilla's value with the
+        // camera on the player, only a body drawn earlier in the same pass (a mod's first-person body,
+        // Iris' shadow pass) moves the line (ThirdPersonLineOrigin).
+        boolean onDrawnRod = origin != handPos;
+        FishingLineVisibility.onFirstPersonOrigin(onDrawnRod);
+        if (!onDrawnRod) {
+            ThirdPersonLineOrigin.onFirstPersonVanilla(owner);
+        }
+        return origin;
     }
 
-    @Unique
-    private static Vec3 fishingrodfix$correct(Minecraft mc, LocalPlayer player, float partialTicks, Vec3 handPos) {
-        Camera camera = mc.gameRenderer.getMainCamera();
-        Vec3 eyePos = player.getEyePosition(partialTicks);
+    /**
+     * Starts a hook's extraction with no line origin placed yet ({@link FishingLineVisibility},
+     * {@link ThirdPersonLineOrigin}).
+     */
+    @Inject(
+        method = "extractRenderState(Lnet/minecraft/world/entity/projectile/FishingHook;Lnet/minecraft/client/renderer/entity/state/FishingHookRenderState;F)V",
+        at = @At("HEAD")
+    )
+    private void fishingrodfix$beginExtraction(CallbackInfo ci) {
+        FishingLineVisibility.beginExtraction();
+        ThirdPersonLineOrigin.beginExtraction();
+    }
 
-        // Orthonormal camera basis (world space). +right == -left.
-        Vector3f fwd   = new Vector3f(camera.forwardVector());
-        Vector3f up    = new Vector3f(camera.upVector());
-        Vector3f right = new Vector3f(camera.leftVector()).negate();
+    /**
+     * Decides, for every hook and perspective, whether its line is drawn ({@link FishingLineVisibility})
+     * and, if it isn't on the first-person rod, whose drawn rod it moves onto at submission
+     * ({@link ThirdPersonLineOrigin}). {@code extractRenderState} calls {@code getPlayerHandPos} before
+     * this TAIL, so this also learns whether the line origin was placed on the drawn first-person rod.
+     */
+    @Inject(
+        method = "extractRenderState(Lnet/minecraft/world/entity/projectile/FishingHook;Lnet/minecraft/client/renderer/entity/state/FishingHookRenderState;F)V",
+        at = @At("TAIL")
+    )
+    private void fishingrodfix$decideLine(FishingHook hook, FishingHookRenderState state, float partialTicks, CallbackInfo ci) {
+        Player owner = hook.getPlayerOwner();
+        boolean hidden = FishingLineVisibility.decideLineHidden(hook, owner);
+        ((FishingLineVisibility.State) state).fishingrodfix$setLineHidden(hidden);
+        ThirdPersonLineOrigin.onHookExtracted(state, owner, FishingLineVisibility.lineOnFirstPersonRod(), hidden, partialTicks);
+    }
 
-        // Vanilla's eye->rod-tip vector (already includes the correct hand side and swing).
-        Vector3f viewVec = new Vector3f(
-                (float)(handPos.x - eyePos.x),
-                (float)(handPos.y - eyePos.y),
-                (float)(handPos.z - eyePos.z));
+    /**
+     * Works out where a body-held rod's line starts ({@link ThirdPersonLineOrigin}), before
+     * {@code submit} reads the origin. Optional, as are the three below: without them that line keeps
+     * vanilla's value.
+     */
+    @Inject(
+        method = "submit(Lnet/minecraft/client/renderer/entity/state/FishingHookRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;"
+                + "Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",
+        at = @At("HEAD"),
+        require = 0
+    )
+    private void fishingrodfix$placeOnDrawnRod(FishingHookRenderState state, PoseStack poseStack, SubmitNodeCollector collector,
+                                               CameraRenderState camera, CallbackInfo ci) {
+        ThirdPersonLineOrigin.onHookSubmitted(state, poseStack, collector);
+    }
 
-        // --- 1. Aspect-ratio / FOV re-projection (exact) ---
-        float baseFov   = mc.options.fov().get().intValue();   // hand model + getPlayerHandPos use this
-        float actualFov = camera.getFov();                     // world/line FOV incl. sprint/speed modifier
-        float realAR    = (float) mc.getWindow().getWidth() / mc.getWindow().getHeight();
-        float tanRatio  = (float)(Math.tan(Math.toRadians(actualFov / 2.0)) / Math.tan(Math.toRadians(baseFov / 2.0)));
+    /** {@code submit}'s {@code xa}, the line offset's x read from {@code lineOriginOffset} (its first float local). */
+    @ModifyVariable(
+        method = "submit(Lnet/minecraft/client/renderer/entity/state/FishingHookRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;"
+                + "Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",
+        at = @At("STORE"),
+        ordinal = 0,
+        require = 0
+    )
+    private float fishingrodfix$lineX(float xa, @Local(argsOnly = true) FishingHookRenderState state) {
+        return ThirdPersonLineOrigin.lineOffset(state, 0, xa);
+    }
 
-        float compFwd   = viewVec.dot(fwd);
-        float compUp    = viewVec.dot(up)    * tanRatio;
-        float compRight = viewVec.dot(right) * tanRatio * (REFERENCE_ASPECT_RATIO / realAR);
+    /** {@code submit}'s {@code ya} (its second float local). */
+    @ModifyVariable(
+        method = "submit(Lnet/minecraft/client/renderer/entity/state/FishingHookRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;"
+                + "Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",
+        at = @At("STORE"),
+        ordinal = 1,
+        require = 0
+    )
+    private float fishingrodfix$lineY(float ya, @Local(argsOnly = true) FishingHookRenderState state) {
+        return ThirdPersonLineOrigin.lineOffset(state, 1, ya);
+    }
 
-        Vector3f corrected = new Vector3f(fwd).mul(compFwd)
-                .add(new Vector3f(up).mul(compUp))
-                .add(new Vector3f(right).mul(compRight));
+    /** {@code submit}'s {@code za} (its third float local). */
+    @ModifyVariable(
+        method = "submit(Lnet/minecraft/client/renderer/entity/state/FishingHookRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;"
+                + "Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",
+        at = @At("STORE"),
+        ordinal = 2,
+        require = 0
+    )
+    private float fishingrodfix$lineZ(float za, @Local(argsOnly = true) FishingHookRenderState state) {
+        return ThirdPersonLineOrigin.lineOffset(state, 2, za);
+    }
 
-        // --- 2. Item-sway lag, mirrored from vanilla's hand rotation (no tuned factor) ---
-        float ax = (player.getViewXRot(partialTicks) - Mth.lerp(partialTicks, player.xBobO, player.xBob)) * VANILLA_ITEM_SWAY_DEGREES;
-        float ay = (player.getViewYRot(partialTicks) - Mth.lerp(partialTicks, player.yBobO, player.yBob)) * VANILLA_ITEM_SWAY_DEGREES;
-        corrected.rotateAxis((float) Math.toRadians(ay), up.x, up.y, up.z)
-                 .rotateAxis((float) Math.toRadians(ax), right.x, right.y, right.z);
-
-        // --- 3. Crouch sag-jump fix (0 when settled, non-zero only during the pose change) ---
-        float crouchOffset = player.onGround()
-                ? (float)(camera.position().y - eyePos.y)
-                : 0f;
-
-        return new Vec3(
-                eyePos.x + corrected.x,
-                eyePos.y + corrected.y + crouchOffset,
-                eyePos.z + corrected.z);
+    /** Skips the line's geometry (the {@code lines} render type) of a hidden line; the bobber is still drawn. */
+    @WrapWithCondition(
+        method = "submit(Lnet/minecraft/client/renderer/entity/state/FishingHookRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;"
+                + "Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/SubmitNodeCollector;submitCustomGeometry(Lcom/mojang/blaze3d/vertex/PoseStack;"
+                + "Lnet/minecraft/client/renderer/rendertype/RenderType;Lnet/minecraft/client/renderer/SubmitNodeCollector$CustomGeometryRenderer;)V")
+    )
+    private boolean fishingrodfix$skipHiddenLine(SubmitNodeCollector collector, PoseStack poseStack, RenderType renderType,
+                                                 SubmitNodeCollector.CustomGeometryRenderer geometry,
+                                                 @Local(argsOnly = true) FishingHookRenderState state) {
+        return renderType != RenderTypes.lines() || !((FishingLineVisibility.State) state).fishingrodfix$isLineHidden();
     }
 }
