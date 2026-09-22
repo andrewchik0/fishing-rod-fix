@@ -717,8 +717,10 @@ across it. Before splitting work into multiple branches:
   field and method the helpers read (Step 4.2) — the helpers fail silently (see
   Step 7), so a descriptor match alone proves nothing. Then fish once on each
   covered version. If everything is identical, ship
-  **one** build and widen `depends.minecraft` to a range (this repo already did
-  `>=1.21 <1.21.2` covering 1.21–1.21.1, `>=1.20 <=1.20.4` covering 1.20–1.20.4, etc.). If they differ, they need
+  **one** build and widen `depends.minecraft` to a range with a **closed** upper
+  bound — never `~X.Y` or `<Y`, which admit the next line's snapshots (pitfall
+  10); a single version gets `>=X <=X` (this repo already did
+  `>=1.20 <=1.20.4` covering 1.20–1.20.4, etc.). If they differ, they need
   separate branches/builds.
 - Prefer targeting the **latest patch** of the current line and covering earlier
   patches via the range when the API matches.
@@ -923,7 +925,16 @@ After the user's OK:
    resource-pack path that silently falls back to vanilla (wrong atlas id, frame
    handling) only shows up in Step 9's resource-pack stage.
 10. **Over-claiming version coverage** — only set `depends.minecraft` to a range
-    you actually validated the API matches across (Step 8).
+    you actually validated the API matches across (Step 8), and always write it
+    with a **closed** upper bound. `~X.Y`, `~X.Y.Z` and `<Y` all admit the next
+    line's snapshots and pre-releases: Fabric normalises a snapshot as a
+    pre-release of the release it leads to (`26w38a` → `26.3-alpha.26.38.a`,
+    which sorts below `26.3`), so `~26.3` and `<26.4` both match it. The mod's
+    required injectors then crash the player's client on a version nobody
+    validated, where a closed bound would have had the loader refuse the mod.
+    Closed 2026-09-23 on `1.21.11` (was `~1.21.11`), `26.2` (`~26.2`) and `26.3`
+    (`~26.3`); `1.21.1` (`>=1.21 <1.21.2`) and `1.21.4` (unbounded `>=1.21`) are
+    still open and should be closed when those branches are ported.
 11. **Hand-pass hook sites** — mark the frame at the call that submits one hand
     (table row "Frame counter / hand mark"), with its full descriptor:
     - pre-26 yarn has two `HeldItemRenderer.renderItem` overloads, so a name-only

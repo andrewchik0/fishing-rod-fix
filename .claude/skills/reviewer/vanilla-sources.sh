@@ -42,10 +42,14 @@ if [ ! -f "$out/.complete" ]; then
         exit 1
     fi
     java=${JAVA_HOME:+$JAVA_HOME/bin/}java
+    # Cap the heap: Vineflower's default is a quarter of physical RAM, which a machine whose commit
+    # charge is already high cannot reserve (the JVM dies with "insufficient memory ... G1 virtual
+    # space" and drops an hs_err file in the repo). 2G is comfortably above what these two jars need.
+    xmx=${FRF_DECOMPILE_XMX:-2G}
     rm -rf "$out"
     mkdir -p "$out"
-    "$java" -jar "$vineflower" -s -e="$common" "$client" "$out" >&2
-    "$java" -jar "$vineflower" -s -e="$client" "$common" "$out" >&2
+    "$java" -Xmx"$xmx" -jar "$vineflower" -s -e="$common" "$client" "$out" >&2
+    "$java" -Xmx"$xmx" -jar "$vineflower" -s -e="$client" "$common" "$out" >&2
     touch "$out/.complete"
 fi
 
