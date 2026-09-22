@@ -4,7 +4,7 @@ import com.andrewchik.fishingrodfix.FishingLineVisibility;
 import com.andrewchik.fishingrodfix.ThirdPersonLineOrigin;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.render.entity.state.FishingBobberEntityState;
-import org.jspecify.annotations.Nullable;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 

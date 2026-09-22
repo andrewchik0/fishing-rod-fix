@@ -8,9 +8,9 @@ import net.minecraft.client.texture.SpriteContents;
 import net.minecraft.util.Atlases;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.ColorHelper;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Vector2f;
 import org.joml.Vector2fc;
-import org.jspecify.annotations.Nullable;
 
 import java.lang.ref.WeakReference;
 
@@ -21,8 +21,9 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.LOGGER;
  * rod's tip is on it.
  *
  * <p>Resource packs that redraw the rod (e.g. Faithful 32x) end its tip at another texel. The pack's
- * tip is measured from the items-atlas sprite. Covers texture-only packs; packs that also replace
- * the rod's model geometry or its display transforms, or swap the model per item, are not measured.
+ * tip is measured from the block-atlas sprite (1.21.10 keeps item textures there). Covers
+ * texture-only packs; packs that also replace the rod's model geometry or its display transforms, or
+ * swap the model per item, are not measured.
  */
 final class RodSprite {
     private static final Identifier CAST_ROD_SPRITE = Identifier.ofVanilla("item/fishing_rod_cast");
@@ -37,7 +38,7 @@ final class RodSprite {
     // shift means findTip misread the texture (mirrored rod, decorations, a 3D model's UV sheet).
     private static final float MAX_TIP_SHIFT = 1.5f / 16f;
 
-    // Held items in the items atlas draw with the item_entity_translucent_cull pipeline, whose
+    // Held items (block atlas) draw with the item_entity_translucent_cull pipeline, whose
     // fragment shader (core/rendertype_item_entity_translucent_cull.fsh) discards alpha below 0.1, as
     // the entity_cutout pipeline's ALPHA_CUTOUT does: fainter pixels are not part of the visible rod.
     private static final float ITEM_ALPHA_CUTOUT = 0.1f;
@@ -56,7 +57,7 @@ final class RodSprite {
      * when it can't be measured or isn't plausible.
      */
     static Vector2fc tipUv(MinecraftClient mc) {
-        SpriteContents sprite = mc.getAtlasManager().getAtlasTexture(Atlases.ITEMS).getSprite(CAST_ROD_SPRITE).getContents();
+        SpriteContents sprite = mc.getAtlasManager().getAtlasTexture(Atlases.BLOCKS).getSprite(CAST_ROD_SPRITE).getContents();
         if (sprite != cachedSprite.get()) {
             cachedTipUv = measureTip(sprite);
             cachedSprite = new WeakReference<>(sprite);

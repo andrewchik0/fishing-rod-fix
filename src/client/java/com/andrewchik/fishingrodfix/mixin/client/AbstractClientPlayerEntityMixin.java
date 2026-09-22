@@ -2,7 +2,7 @@ package com.andrewchik.fishingrodfix.mixin.client;
 
 import com.andrewchik.fishingrodfix.ThirdPersonLineOrigin;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
-import org.jspecify.annotations.Nullable;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 

@@ -20,11 +20,11 @@ import net.minecraft.util.Arm;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
-import org.jspecify.annotations.Nullable;
 
 import java.lang.ref.WeakReference;
 
@@ -85,12 +85,12 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * holds and a hand was drawn when only the HUD decided ({@link HandPass#onlyHudHidesHand}).
  * Vanilla's value is also kept while scoping, where nothing is drawn but the x0.1 world FOV would put
  * the corrected origin inside the scope view (vanilla's guess lands off-screen); when the drawn rod
- * is posed in a way this doesn't model (its hand excluded or using an item, riptide spin, a
- * spear-style stab swing); when no rod has been drawn for the current hook; when the owner isn't the
- * local player or the camera isn't on it; if the result is degenerate (a FOV from another mod out of
- * range); and after an exception, until the next world or dimension. The world projection itself
- * isn't read (1.21.11 keeps no copy of it without the bob and warp), so a mod that changes it rather
- * than {@code getFov} (an orthographic camera, a lens) isn't followed.
+ * is posed in a way this doesn't model (its hand excluded or using an item, riptide spin); when no
+ * rod has been drawn for the current hook; when the owner isn't the local player or the camera isn't
+ * on it; if the result is degenerate (a FOV from another mod out of range); and after an exception,
+ * until the next world or dimension. The world projection itself isn't read (1.21.10 keeps no copy of
+ * it without the bob and warp), so a mod that changes it rather than {@code getFov} (an orthographic
+ * camera, a lens) isn't followed.
  * Whether the line is drawn at all is {@link FishingLineVisibility}'s call.
  */
 public final class FishingLineOrigin {
@@ -139,7 +139,9 @@ public final class FishingLineOrigin {
     // The FOVs renderWorld projects with, from its own getFov calls (GameRendererMixin), with the
     // HandPass frame they were taken in. Each getFov call probes the camera's surroundings for fluid
     // (Camera.getSubmersionType: about a dozen world lookups and ~1 KB of garbage), so compute reuses
-    // them. renderWorld asks for the world FOV before the entities are extracted, so it is this
+    // them; where it can't (entering water or lava, dying, a zoom changing, or these optional hooks
+    // blocked) it asks getFov twice instead, which makes those the mod's most expensive frames, one
+    // pair of calls each. renderWorld asks for the world FOV before the entities are extracted, so it is this
     // frame's; for the hand FOV after them, so it is last frame's. With the world FOV goes its shared
     // factor: the world FOV over its options-FOV-times-movement-modifier base, i.e. everything getFov
     // applies on top of that base (the death and fluid factors, which the hand FOV shares, and any
@@ -271,7 +273,6 @@ public final class FishingLineOrigin {
         }
         boolean mainHand = hand == Hand.MAIN_HAND;
         Arm arm = mainHand ? player.getMainArm() : player.getMainArm().getOpposite();
-        ItemStack drawnItem = mainHand ? hands.fishingrodfix$getMainHand() : hands.fishingrodfix$getOffHand();
         // renderWorld hands renderHand, and so the hand pass, the frame's tick progress
         // (RenderTickCounter.getTickProgress(true)); panorama capture, the only other caller, is
         // excluded in correct.
@@ -287,27 +288,17 @@ public final class FishingLineOrigin {
                 return null;
             }
             // renderItem swings only the attacking hand (preferredHand, the main hand until the first
-            // swing), by the drawn item's swing animation; the other hand gets swing progress 0.
+            // swing); the other hand gets swing progress 0. On 1.21.10 every idle item swings the
+            // same way (swingArm; no swing animations yet).
             Hand attackHand = player.preferredHand != null ? player.preferredHand : Hand.MAIN_HAND;
             if (attackHand == hand) {
-                float attack = player.getHandSwingProgress(tickProgress);
-                switch (drawnItem.getSwingAnimation().type()) {
-                    case WHACK -> swing = attack;
-                    // Lancing's first-person stab (method_75391) leaves the rod in place only at 0.
-                    case STAB -> {
-                        if (attack > 0f) {
-                            return null;
-                        }
-                    }
-                    default -> {}
-                }
+                swing = player.getHandSwingProgress(tickProgress);
             }
         }
-        // The renderer's own manager is Minecraft's instance (EntityRenderManager hands it over).
-        float swapScale = mc.getItemModelManager().getSwapAnimationScale(drawnItem);
-        float inverseArmHeight = swapScale * (1f - (mainHand
+        // renderItem's equip dip (1.21.10 has no per-item swap animation scale).
+        float inverseArmHeight = 1f - (mainHand
                 ? MathHelper.lerp(tickProgress, hands.fishingrodfix$getLastEquipProgressMainHand(), hands.fishingrodfix$getEquipProgressMainHand())
-                : MathHelper.lerp(tickProgress, hands.fishingrodfix$getLastEquipProgressOffHand(), hands.fishingrodfix$getEquipProgressOffHand())));
+                : MathHelper.lerp(tickProgress, hands.fishingrodfix$getLastEquipProgressOffHand(), hands.fishingrodfix$getEquipProgressOffHand()));
         Vector3f anchor = FirstPersonRod.lineAnchor(mc, arm, swing, inverseArmHeight);
 
         // --- 2. Item sway: the pose stack rotates about X then Y, so the point turns about Y first ---
@@ -360,7 +351,7 @@ public final class FishingLineOrigin {
         if (!point.isFinite()) {
             return null;
         }
-        return camera.getCameraPos().add(point.x, point.y, point.z);
+        return camera.getPos().add(point.x, point.y, point.z);
     }
 
     /**
