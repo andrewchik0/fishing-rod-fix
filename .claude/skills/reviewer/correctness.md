@@ -73,7 +73,11 @@ decompiled source of **this branch** and compare:
     break the rod; a quick F-swap before the drawn items catch up;
   - a swing (whack) with the rod, a stab item in the other hand, using an item in either hand, riptide;
   - sneak, crawl, swim, glide (the camera's smoothed eye height), riding a boat, minecart or horse;
-  - F5 (both), F1, spectator, sleeping, death, respawn, a dimension change mid-cast;
+  - F5 (both), F1, spectator, sleeping, death, respawn, a dimension change mid-cast; the first frame
+    after leaving F5 with a hook out, and first person with no rod on screen while another pass
+    (Iris' shadow pass) draws the local body: the visible line keeps vanilla's value; a freecam on
+    its own camera entity that draws the player's body after the hooks (Freecam's Show Player):
+    the body's rod, from the remembered spot;
   - underwater and in lava (hand FOV), sprint/speed/slowness/bow and flying FOV, the FOV slider's
     extremes, nausea and portal with the screen-effect scale from 0 to 1, view bobbing on and off,
     hurt tilt;

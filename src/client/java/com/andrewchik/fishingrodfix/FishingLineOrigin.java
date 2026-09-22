@@ -71,7 +71,10 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * Vanilla's value is kept when no rod can be on screen: the hand pass didn't draw a hand last frame
  * or earlier this frame (spectator, mods that hide or replace it; see {@link HandPass}) or a panorama
  * is being captured. (While vanilla draws the player's own body, asleep or with a detached camera,
- * {@link ThirdPersonLineOrigin} places the line on the body's rod and this isn't asked.) A HUD
+ * {@link ThirdPersonLineOrigin} places the line on the body's rod and this isn't asked. Where this
+ * keeps vanilla's value with the camera on the player, {@link ThirdPersonLineOrigin} only moves the
+ * line onto a body drawn earlier in the same pass: a mod's first-person body, or Iris' shadow pass
+ * for the shadow's line.) A HUD
  * hidden with F1 is the exception: it hides the hand but not the line, a world object, which keeps
  * starting where the rod would be while the rest of vanilla's hand gate holds and a hand was drawn
  * when only the HUD decided ({@link HandPass#onlyHudHidesHand}).

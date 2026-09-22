@@ -21,8 +21,9 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.LOGGER;
  * hand renderer). That call is also reached while scoping, where it draws nothing, so
  * {@link FishingLineOrigin} checks scoping itself. The line origin is computed while extracting, before
  * this frame's hand pass, so it reads the previous frame's result: one frame late when the hand
- * appears or disappears (a mod hiding the hand, waking up). A hook extracted again after this
- * frame's hand pass (none is in vanilla) also accepts this frame's mark.
+ * appears or disappears (a mod hiding the hand, waking up). The origin is worked out once per frame,
+ * at the first extraction of the local player's hook in the frame; later extractions reuse that
+ * result.
  *
  * <p>The hidden HUD (F1) needs more: vanilla skips the hand pass then but keeps drawing the line, a
  * world object, so {@link FishingLineOrigin} keeps correcting it where the rod would be. At each

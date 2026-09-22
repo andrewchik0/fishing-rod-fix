@@ -53,18 +53,28 @@ public class FishingHookRendererMixin {
             return handPos;
         }
         Vec3 origin = FishingLineOrigin.correct(handPos, owner);
-        // Every fallback returns handPos itself.
-        FishingLineVisibility.onFirstPersonOrigin(origin != handPos);
+        // Every fallback returns handPos itself. Where FishingLineOrigin keeps vanilla's value with the
+        // camera on the player, only a body drawn earlier in the same pass (a mod's first-person body,
+        // Iris' shadow pass) moves the line (ThirdPersonLineOrigin).
+        boolean onDrawnRod = origin != handPos;
+        FishingLineVisibility.onFirstPersonOrigin(onDrawnRod);
+        if (!onDrawnRod) {
+            ThirdPersonLineOrigin.onFirstPersonVanilla(owner);
+        }
         return origin;
     }
 
-    /** Starts a hook's extraction with no line origin placed yet ({@link FishingLineVisibility}). */
+    /**
+     * Starts a hook's extraction with no line origin placed yet ({@link FishingLineVisibility},
+     * {@link ThirdPersonLineOrigin}).
+     */
     @Inject(
         method = "extractRenderState(Lnet/minecraft/world/entity/projectile/FishingHook;Lnet/minecraft/client/renderer/entity/state/FishingHookRenderState;F)V",
         at = @At("HEAD")
     )
     private void fishingrodfix$beginExtraction(CallbackInfo ci) {
         FishingLineVisibility.beginExtraction();
+        ThirdPersonLineOrigin.beginExtraction();
     }
 
     /**

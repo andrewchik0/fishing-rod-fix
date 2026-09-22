@@ -30,7 +30,8 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * the first-person rod, i.e. every player {@code FishingHookRenderer.getPlayerHandPos} sends down its
  * third-person branch (other players in any view, the local one in third person or when a mod draws
  * its body in first person) and the local player whose own body vanilla draws in first person
- * ({@link #bodyDrawnInFirstPerson}).
+ * ({@link #bodyDrawnInFirstPerson}) or, on the first-person branch, a mod does (see the last
+ * paragraph).
  *
  * <p>Vanilla's third-person origin is a guess from the eye: a fixed offset turned by the entity's body
  * yaw (not the one drawn while riding a mob), lowered a little while crouching. The drawn rod moves
@@ -56,6 +57,18 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * the owner still holds a rod in that arm and is in the same pose (and riding or not) as then. A pose
  * changed since then shows once the rod is drawn again; otherwise, and for an owner whose rod was
  * never seen drawn, the line keeps vanilla's value.
+ *
+ * <p>The local player's line on {@code getPlayerHandPos}' first-person branch that
+ * {@link FishingLineOrigin} left at vanilla's value (see its Javadoc) while the camera is on that
+ * player (and vanilla, with the camera attached and the player awake, doesn't draw the body) only
+ * moves onto a body drawn earlier in the same pass: one a mod draws in first person without changing
+ * the branch (Player Animation Library's first-person model mode), or the one Iris' shadow pass
+ * draws, rod and then hook, into the shadow map. Where the rod was last drawn doesn't count for it:
+ * no body is on screen, and an F5 view just left or the shadow pass's body would start the visible
+ * line at a rod that isn't drawn. It keeps vanilla's first-person value. With the camera on another
+ * entity vanilla never draws the local player, so a body on screen is a mod's and may come after the
+ * hooks (Freecam's Show Player adds it at the end of the entity extraction): that line keeps the
+ * remembered spot, like Real Camera's classic mode.
  */
 public final class ThirdPersonLineOrigin {
     /** Mixed into {@code AbstractClientPlayer}: the player's rod as last drawn, created on first use. */
@@ -67,17 +80,20 @@ public final class ThirdPersonLineOrigin {
 
     /**
      * Mixed into {@code FishingHookRenderState}: the owner whose drawn rod the line moves onto at
-     * submission (null for a line on the first-person rod, or with no player owner) and the owner's
-     * partial tick. The owner is dropped when the state is submitted: other mods may keep render
-     * states past their frame (Iris' shadow pass keeps its last frame's until its next one, also
-     * after a disconnect), and the owner would keep its world alive.
+     * submission (null for a line on the first-person rod, or with no player owner), the owner's
+     * partial tick, and whether only a rod drawn earlier in the same pass counts (see
+     * {@link #onFirstPersonVanilla}). The owner is dropped when the state is submitted: other mods
+     * may keep render states past their frame (Iris' shadow pass keeps its last frame's until its next
+     * one, also after a disconnect), and the owner would keep its world alive.
      */
     public interface HookState {
         @Nullable AbstractClientPlayer fishingrodfix$bodyRodOwner();
 
         float fishingrodfix$ownerPartialTicks();
 
-        void fishingrodfix$setBodyRodOwner(@Nullable AbstractClientPlayer owner, float ownerPartialTicks);
+        boolean fishingrodfix$samePassOnly();
+
+        void fishingrodfix$setBodyRodOwner(@Nullable AbstractClientPlayer owner, float ownerPartialTicks, boolean samePassOnly);
     }
 
     /** Where a player's rod was drawn. Render-thread only, as is all state here. */
@@ -116,6 +132,11 @@ public final class ThirdPersonLineOrigin {
     // The frame in which a hook with a body-held line was last extracted: rods are only read in such
     // frames, so every other frame costs the item layer one compare per held item.
     private static long bodyHookFrame = Long.MIN_VALUE;
+
+    // Whether the hook being extracted took getPlayerHandPos' first-person branch with the camera on its
+    // owner and FishingLineOrigin kept vanilla's value there (see the class Javadoc). Cleared at the
+    // start of extractRenderState, set inside it and read at its end.
+    private static boolean firstPersonVanilla;
 
     // The pass of the latest hook submitted (its collector and frame), with that hook's world
     // position and the inverse of its pose: together they turn a point in the pass's space into the
@@ -168,6 +189,26 @@ public final class ThirdPersonLineOrigin {
         }
     }
 
+    /** Called at the start of a hook's {@code extractRenderState}. */
+    public static void beginExtraction() {
+        firstPersonVanilla = false;
+    }
+
+    /**
+     * Called from {@code getPlayerHandPos}' first-person branch when {@link FishingLineOrigin} kept
+     * vanilla's value and vanilla doesn't draw the body: with the camera on the owner, the line only
+     * moves onto a body drawn earlier in the same pass (see the class Javadoc).
+     */
+    public static void onFirstPersonVanilla(Player owner) {
+        Minecraft mc = Minecraft.getInstance();
+        try {
+            Camera camera = mc.getEntityRenderDispatcher().camera;
+            firstPersonVanilla = camera != null && camera.entity() == owner;
+        } catch (RuntimeException | LinkageError e) {
+            disable(mc, e);
+        }
+    }
+
     /**
      * Called at the end of a hook's {@code extractRenderState}: the owner whose drawn rod the line
      * moves onto at submission, unless the line is on the first-person rod or hidden.
@@ -176,7 +217,7 @@ public final class ThirdPersonLineOrigin {
                                        float partialTicks) {
         HookState hookState = (HookState) state;
         if (onFirstPersonRod || hidden || !(owner instanceof AbstractClientPlayer player) || disabledIn.get() == Minecraft.getInstance().level) {
-            hookState.fishingrodfix$setBodyRodOwner(null, 0f);
+            hookState.fishingrodfix$setBodyRodOwner(null, 0f, false);
             return;
         }
         // The owner's partial tick, as LevelExtractor extracts it: players never freeze, so it is the
@@ -184,7 +225,7 @@ public final class ThirdPersonLineOrigin {
         float ownerPartialTicks = player.level().tickRateManager().runsNormally()
                 ? partialTicks
                 : Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(true);
-        hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks);
+        hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks, firstPersonVanilla);
         bodyHookFrame = HandPass.frame();
     }
 
@@ -241,7 +282,8 @@ public final class ThirdPersonLineOrigin {
 
     /**
      * Called at the start of a hook's {@code submit}: works out where its line starts, on the owner's
-     * rod drawn earlier in this pass or where it was last drawn, for {@link #lineOffset}.
+     * rod drawn earlier in this pass or (not for a line flagged by {@link #onFirstPersonVanilla}) where
+     * it was last drawn, for {@link #lineOffset}.
      */
     public static void onHookSubmitted(FishingHookRenderState state, PoseStack poseStack, SubmitNodeCollector collector) {
         pendingState = null;
@@ -251,8 +293,9 @@ public final class ThirdPersonLineOrigin {
             return;
         }
         float ownerPartialTicks = hookState.fishingrodfix$ownerPartialTicks();
+        boolean samePassOnly = hookState.fishingrodfix$samePassOnly();
         // Only this submission needs the owner (see HookState).
-        hookState.fishingrodfix$setBodyRodOwner(null, 0f);
+        hookState.fishingrodfix$setBodyRodOwner(null, 0f, false);
         Minecraft mc = Minecraft.getInstance();
         if (disabledIn.get() == mc.level) {
             return;
@@ -274,6 +317,10 @@ public final class ThirdPersonLineOrigin {
             if (rod.collector == collector && rod.frame == passFrame) {
                 local = passInverse.transformPosition(rod.tip, scratch);
                 remember(rod, state.x + local.x, state.y + local.y, state.z + local.z);
+            } else if (samePassOnly) {
+                // A first-person line FishingLineOrigin left at vanilla's value, with no body drawn
+                // before it in this pass: vanilla's value (see the class Javadoc).
+                return;
             } else {
                 local = remembered(owner, rod, ownerPartialTicks, state);
                 if (local == null) {

@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.Unique;
 /**
  * Carries, from extraction to submission, {@link FishingLineVisibility}'s decision for the hook this
  * state was extracted from, and the owner whose drawn rod its line moves onto with that owner's
- * partial tick ({@link ThirdPersonLineOrigin}).
+ * partial tick and whether only a rod drawn in the same pass counts ({@link ThirdPersonLineOrigin}).
  */
 @Mixin(FishingHookRenderState.class)
 public class FishingHookRenderStateMixin implements FishingLineVisibility.State, ThirdPersonLineOrigin.HookState {
@@ -21,6 +21,8 @@ public class FishingHookRenderStateMixin implements FishingLineVisibility.State,
     private @Nullable AbstractClientPlayer fishingrodfix$bodyRodOwner;
     @Unique
     private float fishingrodfix$ownerPartialTicks;
+    @Unique
+    private boolean fishingrodfix$samePassOnly;
 
     @Override
     public boolean fishingrodfix$isLineHidden() {
@@ -43,8 +45,14 @@ public class FishingHookRenderStateMixin implements FishingLineVisibility.State,
     }
 
     @Override
-    public void fishingrodfix$setBodyRodOwner(@Nullable AbstractClientPlayer owner, float ownerPartialTicks) {
+    public boolean fishingrodfix$samePassOnly() {
+        return fishingrodfix$samePassOnly;
+    }
+
+    @Override
+    public void fishingrodfix$setBodyRodOwner(@Nullable AbstractClientPlayer owner, float ownerPartialTicks, boolean samePassOnly) {
         fishingrodfix$bodyRodOwner = owner;
         fishingrodfix$ownerPartialTicks = ownerPartialTicks;
+        fishingrodfix$samePassOnly = samePassOnly;
     }
 }
