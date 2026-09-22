@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 /**
- * Ends a pass for {@link ThirdPersonLineOrigin} when its submissions are cleared: on 1.21.11 one queue
+ * Ends a pass for {@link ThirdPersonLineOrigin} when its submissions are cleared: on 1.21.10 one queue
  * (the {@code GameRenderer}'s) serves the world's main pass and its particles, the first-person hand
  * pass, the screen effects and the GUI's pictures (the inventory's player model, banners, oversized
  * items) and item atlas, each drawn and then cleared by {@code RenderDispatcher.render} (which

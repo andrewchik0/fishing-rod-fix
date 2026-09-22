@@ -1,5 +1,6 @@
 package com.andrewchik.fishingrodfix;
 
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.render.Camera;
@@ -13,12 +14,11 @@ import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
 import net.minecraft.util.Arm;
 import net.minecraft.util.math.MathHelper;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
-import org.jspecify.annotations.Nullable;
 
 import java.lang.ref.WeakReference;
 
@@ -43,7 +43,7 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * {@code HeldItemFeatureRenderer.renderItem} submits a rod in the hand of a player who is fishing, the
  * pose it submits with (whatever vanilla and other mods made of the body, arm and item up to there)
  * places {@link ThirdPersonRod}'s attachment point, in the queue's space, tagged with the pass it was
- * drawn in: the queue, the {@link HandPass} frame and the count of queue clears so far. On 1.21.11 one
+ * drawn in: the queue, the {@link HandPass} frame and the count of queue clears so far. On 1.21.10 one
  * {@code OrderedRenderCommandQueueImpl} (the {@code GameRenderer}'s) serves every vanilla pass of a
  * frame (the world and its particles, the first-person hand, the screen effects, the GUI's pictures
  * such as the inventory's player model, and its item atlas), each submitted, drawn and cleared in
@@ -59,7 +59,11 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * starts where the rod was last drawn, relative to the body's position and turned with its yaw, while
  * the owner still holds a rod in that arm and is in the same pose (and riding or not) as then. A pose
  * changed since then shows once the rod is drawn again; otherwise, and for an owner whose rod was
- * never seen drawn, the line keeps vanilla's value.
+ * never seen drawn, the line keeps vanilla's value. Being relative to the body's position, that spot
+ * also carries the offset the reading frame drew the body at ({@code PlayerEntityRenderer.getPositionOffset}):
+ * the crouch shift, which the pose gate keeps in step, and, only for a passenger of an
+ * experimental-movement minecart, that frame's cart lerp correction, a fraction of a block until the
+ * rod is drawn again.
  *
  * <p>The local player's line on {@code getHandPos}' first-person branch that {@link FishingLineOrigin}
  * left at vanilla's value (see its Javadoc) while the camera is on that player (and vanilla, with the
@@ -104,6 +108,8 @@ public final class ThirdPersonLineOrigin {
         // The latest submission: the tip in the queue's space and the pass it was drawn in, with the
         // arm, and the body's position, yaw, pose and riding it was drawn with.
         private final Vector3f tip = new Vector3f();
+        // Compared by identity only, never dereferenced, and useless once frame is stale: a queue a
+        // mod replaces (Iris on a shader reload) is held until the player's next drawn rod, no longer.
         private @Nullable OrderedRenderCommandQueue collector;
         private long frame;
         private long clears;
@@ -133,16 +139,22 @@ public final class ThirdPersonLineOrigin {
     private static final float RIDER_TURN_THRESHOLD = 50f;
     private static final float RIDER_TURN_FACTOR    = 0.2f;
 
-    // The frame in which a hook with a body-held line was last extracted: rods are only read in such
-    // frames, so every other frame costs the item layer one compare per held item.
+    // The frame in which a hook with a body-held line was last extracted, and in it the owners of
+    // those hooks with the arm each draws its rod in (ownerKey): rods are only read in such frames,
+    // only for those players and only in that arm, so every other frame costs the item layer one
+    // compare per held item, and every other drawn item (another player's, a mannequin's, the
+    // fishing player's other hand) one set lookup. 1.21.10's held-item call has no stack to tell a
+    // rod by, so this stands in for 1.21.11's rod check; what is drawn in that arm is still checked
+    // out of line. Bounded by the hooks extracted in one frame.
     private static long bodyHookFrame = Long.MIN_VALUE;
+    private static final IntOpenHashSet bodyHookOwners = new IntOpenHashSet();
 
     // Whether the hook being extracted took getHandPos' first-person branch with the camera on its
     // owner and FishingLineOrigin kept vanilla's value there (see the class Javadoc). Cleared at the
     // start of updateRenderState, set inside it and read at its end.
     private static boolean firstPersonVanilla;
 
-    // OrderedRenderCommandQueueImpl.clear calls so far, on any queue: on 1.21.11 one queue serves
+    // OrderedRenderCommandQueueImpl.clear calls so far, on any queue: on 1.21.10 one queue serves
     // every vanilla pass of a frame, and a clear ends one. 0 while that hook doesn't apply.
     private static long clears;
 
@@ -224,33 +236,59 @@ public final class ThirdPersonLineOrigin {
      */
     public static void onHookExtracted(FishingBobberEntityState state, @Nullable PlayerEntity owner, boolean onFirstPersonRod, boolean hidden,
                                        float partialTicks) {
-        HookState hookState = (HookState) state;
-        if (onFirstPersonRod || hidden || !(owner instanceof AbstractClientPlayerEntity player)
-                || disabledIn.get() == MinecraftClient.getInstance().world) {
-            hookState.fishingrodfix$setBodyRodOwner(null, 0f, false);
-            return;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        try {
+            HookState hookState = (HookState) state;
+            if (onFirstPersonRod || hidden || !(owner instanceof AbstractClientPlayerEntity player) || disabledIn.get() == mc.world) {
+                hookState.fishingrodfix$setBodyRodOwner(null, 0f, false);
+                return;
+            }
+            // The owner's partial tick, as WorldRenderer.fillEntityRenderStates extracts it: players
+            // never skip a tick (TickManager.shouldSkipTick), so it is the hook's unless the tick rate
+            // is frozen.
+            float ownerPartialTicks = player.getEntityWorld().getTickManager().shouldTick()
+                    ? partialTicks
+                    : mc.getRenderTickCounter().getTickProgress(true);
+            hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks, firstPersonVanilla);
+            // Without frame counting nothing is read (and the owners would pile up over the session).
+            if (HandPass.framesCounted()) {
+                long frame = HandPass.frame();
+                if (bodyHookFrame != frame) {
+                    bodyHookOwners.clear();
+                    bodyHookFrame = frame;
+                }
+                bodyHookOwners.add(ownerKey(player.getId(), FishingBobberEntityRenderer.getArmHoldingRod(player)));
+            }
+        } catch (RuntimeException | LinkageError e) {
+            // As every other entry from vanilla: vanilla's line until the next world. A line left with
+            // an owner here drops it unused at its submission, which runs before anything reads it.
+            disable(mc, e);
         }
-        // The owner's partial tick, as WorldRenderer.fillEntityRenderStates extracts it: players never
-        // skip a tick (TickManager.shouldSkipTick), so it is the hook's unless the tick rate is frozen.
-        float ownerPartialTicks = player.getEntityWorld().getTickManager().shouldTick()
-                ? partialTicks
-                : MinecraftClient.getInstance().getRenderTickCounter().getTickProgress(true);
-        hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks, firstPersonVanilla);
-        bodyHookFrame = HandPass.frame();
     }
 
     /**
-     * Called where {@code HeldItemFeatureRenderer.renderItem} submits a held item, for every armed
-     * entity: small, so it inlines there; only a rod in a player's hand in a frame with a body-held
-     * line goes on.
+     * Called where {@code HeldItemFeatureRenderer.renderItem} submits a held item, once per non-empty
+     * held item of an armed entity: small, so it inlines there; only the rod arm of a player whose
+     * body-held hook was extracted this frame goes on (1.21.10's call has no stack: whether the item
+     * drawn there is the rod is decided out of line). Every pass extracts its entities before it
+     * submits any, so the owners of the pass's hooks are known when their rods are drawn, before or
+     * after the hooks.
      */
-    public static void onItemSubmitted(ArmedEntityRenderState state, ItemStack stack, Arm arm, MatrixStack matrices, OrderedRenderCommandQueue queue) {
-        if (bodyHookFrame == HandPass.frame() && state instanceof PlayerEntityRenderState player && isRod(stack)) {
+    public static void onItemSubmitted(ArmedEntityRenderState state, Arm arm, MatrixStack matrices, OrderedRenderCommandQueue queue) {
+        // arm != null: vanilla always passes one, but ownerKey reads it and this gate runs outside the
+        // exception boundary, so a mod that passed null would throw into the item layer.
+        if (arm != null && bodyHookFrame == HandPass.frame() && state instanceof PlayerEntityRenderState player
+                && bodyHookOwners.contains(ownerKey(player.id, arm))) {
             readDrawnRod(player, arm, matrices, queue);
         }
     }
 
-    /** Records a fishing player's rod as drawn. */
+    /** A body-held hook owner and the arm its rod is drawn in, as one {@code bodyHookOwners} key. */
+    private static int ownerKey(int entityId, Arm arm) {
+        return entityId * 2 + arm.ordinal();
+    }
+
+    /** Records a fishing player's rod as drawn, if the item submitted in {@code arm} is it. */
     private static void readDrawnRod(PlayerEntityRenderState state, Arm arm, MatrixStack matrices, OrderedRenderCommandQueue queue) {
         MinecraftClient mc = MinecraftClient.getInstance();
         ClientWorld world = mc.world;
@@ -259,9 +297,12 @@ public final class ThirdPersonLineOrigin {
             return;
         }
         try {
-            // The hook's rod: the arm vanilla draws the cast rod in (FishingBobberEntityRenderer.getArmHoldingRod).
+            // The rod itself: arm is already the one vanilla draws the cast rod in (the key it came
+            // through holds FishingBobberEntityRenderer.getArmHoldingRod's arm), so only the item in
+            // it is left. The item state was extracted from getStackInArm this frame, and nothing
+            // ticks between extraction and submission, so the live stack is the one drawn.
             if (!(world.getEntityById(state.id) instanceof AbstractClientPlayerEntity player) || player.fishHook == null
-                    || arm != FishingBobberEntityRenderer.getArmHoldingRod(player)) {
+                    || !isRod(player.getStackInArm(arm))) {
                 return;
             }
             Owner owner = (Owner) player;
@@ -393,7 +434,10 @@ public final class ThirdPersonLineOrigin {
                 (float) (MathHelper.lerp(partialTicks, owner.lastRenderZ, owner.getZ()) - state.z + offset.z));
     }
 
-    /** Remembers the drawn tip, at world position {@code (x, y, z)}, relative to the body it was drawn with. */
+    /**
+     * Remembers the drawn tip, at world position {@code (x, y, z)}, relative to the body it was drawn
+     * with: its position, without the offset the renderer drew it at (see the class Javadoc).
+     */
     private static void remember(BodyRod rod, double x, double y, double z) {
         rod.offset.set((float) (x - rod.bodyX), (float) (y - rod.bodyY), (float) (z - rod.bodyZ));
         rod.offsetYaw = rod.bodyYaw;

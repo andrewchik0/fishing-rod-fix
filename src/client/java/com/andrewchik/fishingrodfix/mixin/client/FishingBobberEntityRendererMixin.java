@@ -7,7 +7,6 @@ import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import com.llamalad7.mixinextras.sugar.Local;
 import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.RenderLayers;
 import net.minecraft.client.render.command.OrderedRenderCommandQueue;
 import net.minecraft.client.render.entity.FishingBobberEntityRenderer;
 import net.minecraft.client.render.entity.state.FishingBobberEntityState;
@@ -27,7 +26,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * and in {@link ThirdPersonLineOrigin} for a rod held by a player's body) and hides the line of a hook
  * whose rod has left its owner's hands ({@link FishingLineVisibility}).
  *
- * <p>On 1.21.11 the line is a deferred {@code submitCustom} whose origin offset
+ * <p>On 1.21.10 the line is a deferred {@code submitCustom} whose origin offset
  * {@code updateRenderState} takes from {@code getHandPos}. For the first-person rod we modify the
  * value of that method's only {@code Vec3d.add(Vec3d)} call,
  * {@code player.getCameraPosVec(tickProgress).add(vec3d)}, which exists only in its first-person
@@ -156,6 +155,6 @@ public class FishingBobberEntityRendererMixin {
     private boolean fishingrodfix$skipHiddenLine(OrderedRenderCommandQueue queue, MatrixStack matrices, RenderLayer renderLayer,
                                                  OrderedRenderCommandQueue.Custom geometry,
                                                  @Local(argsOnly = true) FishingBobberEntityState state) {
-        return renderLayer != RenderLayers.lines() || !((FishingLineVisibility.State) state).fishingrodfix$isLineHidden();
+        return renderLayer != RenderLayer.getLines() || !((FishingLineVisibility.State) state).fishingrodfix$isLineHidden();
     }
 }

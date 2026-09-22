@@ -41,8 +41,8 @@ final class FirstPersonRod {
     // GameRenderer.getFov: the hand pass's FOV (changingFov false) before the fluid and death factors.
     private static final float BASE_HAND_FOV = 70f;
 
-    // HeldItemRenderer.applyEquipOffset: EQUIP_OFFSET_TRANSLATE_X/Y/Z (right arm) and the equip dip
-    // scale (-0.6, times the inverted equip progress).
+    // HeldItemRenderer.applyEquipOffset: EQUIP_OFFSET_TRANSLATE_X/Y/Z (0.56, -0.52, -0.72, right arm)
+    // and the equip dip scale (-0.6, times the inverted equip progress).
     private static final Vector3fc ITEM_POS          = new Vector3f(0.56f, -0.52f, -0.72f);
     private static final float     ITEM_HEIGHT_SCALE = -0.6f;
     // HeldItemRenderer.swingArm / applySwingOffset: the swing's translation scales (-0.4, 0.2, -0.2),
@@ -94,7 +94,11 @@ final class FirstPersonRod {
         return anchor;
     }
 
-    /** The right-arm pose stack before the item transform: applyEquipOffset, then swingArm. */
+    /**
+     * The right-arm pose stack before the item transform: HeldItemRenderer.swingArm, which on 1.21.10
+     * translates by the swing, then calls applyEquipOffset and applySwingOffset; the two translations
+     * commute, so the equip offset goes first here.
+     */
     private static Matrix4f armPose(float swing, float inverseArmHeight) {
         Matrix4f pose = new Matrix4f().translation(ITEM_POS.x(), ITEM_POS.y() + inverseArmHeight * ITEM_HEIGHT_SCALE, ITEM_POS.z());
         if (swing > 0f) {

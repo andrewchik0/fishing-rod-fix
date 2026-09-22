@@ -16,8 +16,9 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.LOGGER;
  * ways (Better F1 keeps the hand with the HUD hidden, Player Animation Library and freecam mods cancel
  * the pass).
  *
- * <p>Frames are counted where {@code GameRenderer.render} calls {@code updateCamera}: once per rendered
- * frame, before the camera update and the world, and past {@code render}'s {@code skipGameRender}
+ * <p>Frames are counted where {@code GameRenderer.render} sets the frame's global shader settings
+ * ({@code GlobalSettings.set}): once per rendered frame, before the world (and so before
+ * {@code renderWorld}'s camera update), and past {@code render}'s {@code skipGameRender}
  * check, through which Dynamic FPS skips most frames while it throttles (a skipped frame counted as
  * one without a hand would put the line at vanilla's value); the hand pass marks the frame when it
  * submits a hand ({@code HeldItemRenderer.renderFirstPersonItem}, reached from vanilla and from Iris's
@@ -29,18 +30,19 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.LOGGER;
  * extractions reuse that result.
  *
  * <p>The hidden HUD (F1) needs more: vanilla skips the hand pass then but keeps drawing the line, a
- * world object, so {@link FishingLineOrigin} keeps correcting it where the rod would be. At the start
- * of each frame's {@code renderWorld} (after the tick and the camera update, so for this frame's hand
- * pass) this samples the HUD and the rest of {@code renderHand}'s gate (first person, not rendering a
- * panorama, awake, not spectating; it draws the local player), plus the camera on that player at its
- * eye, not in third person (freecam mods may keep the player as camera entity without moving the
- * camera into third person). Whether a hand is drawn when only the HUD decides is latched, at the next
- * frame's start, from frames that prove it: a drawn hand, or a missing one while the HUD and that gate
- * were open (then a mod hid it). A frame with the gate closed, or one that didn't render the world,
- * proves nothing and restores the default (drawn), so F5, sleep or a freecam before F1 leave no stale
- * answer. So a hidden HUD doesn't move the line: F1 keeps what the line did before, and the gate still
- * applies live. What changes unseen while the HUD is hidden (a mod starting or stopping to hide the
- * hand) only shows once the HUD is back. Render-thread only.
+ * world object, so {@link FishingLineOrigin} keeps correcting it where the rod would be. Right
+ * after each frame's {@code renderWorld} updates the camera (after the tick, before the world's
+ * entities, so for this frame's hand pass) this samples the HUD and the rest of
+ * {@code renderHand}'s gate (first person, not rendering a panorama, awake, not spectating; it draws
+ * the local player), plus the camera on that player at its eye, not in third person (freecam mods may
+ * keep the player as camera entity without moving the camera into third person). Whether a hand is
+ * drawn when only the HUD decides is latched, at the next frame's start, from frames that prove it:
+ * a drawn hand, or a missing one while the HUD and that gate were open (then a mod hid it). A frame
+ * with the gate closed, or one that didn't render the world, proves nothing and restores the
+ * default (drawn), so F5, sleep or a freecam before F1 leave no stale answer. So a hidden HUD
+ * doesn't move the line: F1 keeps what the line did before, and the gate still applies live. What
+ * changes unseen while the HUD is hidden (a mod starting or stopping to hide the hand) only shows
+ * once the HUD is back. Render-thread only.
  */
 public final class HandPass {
     // Squared distance (blocks) within which the camera counts as at the player's eye. Vanilla's
@@ -53,9 +55,10 @@ public final class HandPass {
     // Below frame - 1 until a hand pass has been seen.
     private static long lastHandPassFrame = Long.MIN_VALUE;
 
-    // The latest samples: the HUD hidden, and the rest of the hand gate open. Taken at renderWorld's
-    // start; at the next frame's start the latch pairs them with that frame's hand pass, then they are
-    // closed until renderWorld samples again (a frame that doesn't render the world draws no hand).
+    // The latest samples: the HUD hidden, and the rest of the hand gate open. Taken after
+    // renderWorld's camera update; at the next frame's start the latch pairs them with that frame's
+    // hand pass, then they are closed until renderWorld samples again (a frame that doesn't render
+    // the world draws no hand).
     private static boolean hudHidden;
     private static boolean handGateOpen;
     private static long lastHudHiddenFrame = Long.MIN_VALUE;
@@ -67,7 +70,7 @@ public final class HandPass {
 
     private HandPass() {}
 
-    /** Called where {@code GameRenderer.render} updates the camera, once per rendered frame. */
+    /** Called where {@code GameRenderer.render} sets the frame's global settings, once per rendered frame. */
     public static void onFrameStart() {
         frame++;
         boolean drew = lastHandPassFrame >= frame - 1;
@@ -80,7 +83,7 @@ public final class HandPass {
         handGateOpen = false;
     }
 
-    /** Called at the start of {@code GameRenderer.renderWorld}, after this frame's camera update. */
+    /** Called in {@code GameRenderer.renderWorld} right after this frame's camera update. */
     public static void onWorldRender() {
         sample();
         if (hudHidden) {
@@ -161,7 +164,7 @@ public final class HandPass {
         // Where Camera.update puts a first-person camera, at the partial tick it was updated with.
         float tickProgress = camera.getLastTickProgress();
         CameraAccessor eye = (CameraAccessor) camera;
-        Vec3d position = camera.getCameraPos();
+        Vec3d position = camera.getPos();
         double dx = position.x - MathHelper.lerp(tickProgress, player.lastX, player.getX());
         double dy = position.y - (MathHelper.lerp(tickProgress, player.lastY, player.getY())
                 + MathHelper.lerp(tickProgress, eye.fishingrodfix$getLastCameraY(), eye.fishingrodfix$getCameraY()));
