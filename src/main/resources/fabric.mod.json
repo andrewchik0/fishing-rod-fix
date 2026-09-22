@@ -3,7 +3,7 @@
 	"id": "fishingrodfix",
 	"version": "${version}",
 	"name": "Fishing rod fix",
-	"description": "Fixes the first-person fishing line so it starts at the rod tip, and hides the line of a hook whose rod was put away.",
+	"description": "Fixes the fishing line so it starts at the rod tip, in first person and on every player's body in third person, and hides the line of a hook whose rod was put away.",
 	"authors": [
 		"andrewchik"
 	],

@@ -4,6 +4,7 @@
   "package": "com.andrewchik.fishingrodfix.mixin.client",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "AbstractClientPlayerMixin",
     "CameraAccessor",
     "FirstPersonHandsAndItemsRendererMixin",
     "FishingHookMixin",
@@ -11,6 +12,7 @@
     "FishingHookRenderStateMixin",
     "GameRendererInvoker",
     "GameRendererMixin",
+    "ItemInHandLayerMixin",
     "SpriteContentsAccessor"
   ],
   "injectors": {

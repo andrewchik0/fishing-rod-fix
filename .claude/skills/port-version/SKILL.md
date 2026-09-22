@@ -1,6 +1,6 @@
 ---
 name: port-version
-description: Port the Fishing Rod Fix mod to a target Minecraft version — backport to an older release or forward-port to a new one. Use when asked to port/backport the mod to a specific MC version (e.g. "port to 26.2", "backport v0.5 to 1.21.5"). Resolves Fabric coordinates, adapts the mixin to the target's real decompiled API, builds, smoke-tests that the mixin applies without crashing, then hands off for manual in-game verification before any commit.
+description: Port the Fishing Rod Fix mod to a target Minecraft version — backport to an older release or forward-port to a new one. Use when asked to port/backport the mod to a specific MC version (e.g. "port to 26.2", "backport v0.5 to 1.21.5"). First brings the project skills (itself included) onto the target branch from the default branch, then resolves Fabric coordinates, adapts the mixin to the target's real decompiled API, builds, reviews the port in rounds with /reviewer (compatibility once, in parallel) until no real bug is left, and only then launches the game: smoke-tests that the mixins apply without crashing and hands off for manual in-game verification before any commit.
 ---
 
 # Port Fishing Rod Fix to a Minecraft version
@@ -12,21 +12,23 @@ description: Port the Fishing Rod Fix mod to a target Minecraft version — back
 > "the reference is vX.Y" into the prose** — detect those at runtime (see
 > "Canonical source"). Only edit this skill when you learn something genuinely
 > new about the porting process, then propagate the same content to the branches
-> you maintain (e.g. `git checkout <default_branch> -- .claude/skills/port-version`).
+> you maintain — every port does that first for all project skills (Step 0:
+> `git restore --source=<default_branch> --staged --worktree -- .claude/skills`).
 > The per-version table at the bottom (with its notes) and the "Known inflection
 > points" overview are the main places version specifics live, and they are
 > explicitly "observed, verify against source" — extend them, don't trust them.
 
 ## What this mod is (why correctness matters)
 
-A purely client-side Fabric mod. A few small mixins hook the first-person
-fishing-line origin, the line's visibility and the hand pass, and delegate to plain
-helper classes that correct the origin so the line meets the rod tip, and hide the
-line of a hook whose rod was put away (list the reference branch's `src/` for the
+A purely client-side Fabric mod. A few small mixins hook the fishing-line origin
+(the first-person rod and the rod a player's body holds), the line's visibility and
+the hand pass, and delegate to plain helper classes that correct the origin so the
+line meets the rod tip, and hide the line of a hook whose rod was put away (list the reference branch's `src/` for the
 current set; the table's "Source layout" row shows one). The mixins are declared
 `required: true` with `defaultRequire: 1`, so **if an injection fails to apply,
-the game crashes at client startup** (the two hand-pass injectors are the
-deliberate exception, see pitfall 8). This mod has thousands of players
+the game crashes at client startup** (the optional injectors — the two
+hand-pass ones and the body-held rod's — are the deliberate exception, see
+pitfall 8). This mod has thousands of players
 on CurseForge/Modrinth — a bad port ships a crash. The prime directive of this
 skill: **never finalize a port that hasn't been proven to load without crashing,
 and never auto-commit/push correctness the user hasn't visually confirmed.**
@@ -123,13 +125,16 @@ third-person branch (`add(double, double, double)`). Hook **only the first-perso
 branch's result** with MixinExtras `@ModifyExpressionValue` on that single
 `add(Vec3)` INVOKE, with `allow = 1`; the handler is `(Vec3 handPos,
 @Local(argsOnly = true) Player owner)` and returns the corrected world position
-(or `handPos` whenever the fix doesn't apply). Do **not** inject at `RETURN`: it
-also sees the third-person branch, and popular mods (First Person Model, Real
-Camera) redirect vanilla's camera-type check to force that branch, so a mod-side
-"is first person" check disagrees with the branch vanilla actually took. Never
-select returns by ordinal either — bytecode order differs from decompiled source
-order. Verify with `javap -c` that the target method contains exactly one
-`add(Vec3)`. The catenary is left untouched. The fix does not reuse vanilla's
+(or `handPos` whenever the fix doesn't apply, and while vanilla draws the player's
+own body instead — asleep, or a mod-detached camera — whose rod the body-held path
+takes). The third-person branch is not hooked: a body-held rod's line is placed
+where the hook is submitted (see Step 4.4). Do **not** inject at `RETURN`: popular
+mods (First Person Model, Real Camera) redirect vanilla's camera-type check to send
+the local player down the third-person branch while they draw its body, so a
+mod-side "is first person" check disagrees with the branch vanilla actually took.
+Never select returns by ordinal either — bytecode order differs from decompiled
+source order (26.3 compiles the third-person branch first). Verify with `javap -c`
+that the target method contains exactly one `add(Vec3)`. The catenary is left untouched. The fix does not reuse vanilla's
 eye-based vector at all (mods such as Animatium rewrite the eye height inside this
 method); it rebuilds the point from the hand pass and the camera.
 
@@ -153,8 +158,39 @@ If no version is given, ask which one. One run = one target version.
 
 ## Procedure
 
-### Step 0 — Preconditions
-- `git status` must be clean. If not, stop and ask the user to stash/commit.
+### Step 0 — First: bring the target branch's skills up to date
+Project skills (`.claude/skills/`: this one, `/reviewer` and any others) are checked
+into the repo and load from whatever branch is checked out, so an older version
+branch carries older copies of them — possibly an older copy of this very
+procedure. Before anything else, a port puts the current skills on the target
+branch:
+1. `git status` must be clean; if not, stop and ask the user to stash or commit.
+   Skills travel only as the default branch has them committed: a skill the user is
+   still writing (untracked or uncommitted there) doesn't come along — say so.
+2. Detect `<default_branch>` (see "Canonical source").
+3. Switch to the target branch: check it out, or create it from the base Step 2
+   names. Note the commit you are on now (`git rev-parse HEAD`): it is the port's
+   base, the start of Step 6b's review scope.
+4. Mirror the skills from the default branch:
+   `git restore --source=<default_branch> --staged --worktree -- .claude/skills`.
+   It brings every skill file over and, in its default no-overlay mode, removes the
+   ones the default branch no longer has. Update the "Roles" list in the branch's
+   `CLAUDE.md` to match the synced skills.
+5. If `.claude/skills/port-version/SKILL.md` changed in step 4, the procedure you
+   are following is outdated: re-read that file now and continue with the new
+   version from here.
+6. Port the synced skills' version-specific parts to the target, as part of the
+   port. Ideally a skill has none: its procedure detects versions at runtime and
+   keeps version facts only in its "observed" tables. What remains — code that runs
+   against Minecraft (a test harness, scripts naming classes or descriptors), a
+   table with no entry for the target yet — is adapted like the mod itself and
+   verified against the target's decompiled source. Tables cover every version:
+   extend them, never replace another version's entries. List what you adapted in
+   the final report.
+The skill sync is committed on its own in Step 10 and stays out of the port's
+review scope, except for the parts adapted in step 6.
+
+### Step 0b — Preconditions
 - Confirm the Gradle JVM in use satisfies the **target's runtime Java** (Step 1;
   the table's "Loom / Java" row). If `runClient` would launch on an older JDK, the
   smoke test will fail for the wrong reason.
@@ -163,11 +199,6 @@ If no version is given, ask which one. One run = one target version.
   and `.idea` is shared by all branches, so a config from another family carries
   the wrong JVM flags (see the table's "Run-config JVM flags" row) — a native crash
   or a JVM that won't start. Delete it and run `./gradlew ideaSyncTask`.
-- **Make sure this skill is present on the branch you will work on.** It is a
-  project skill loaded from the checked-out branch's `.claude/skills/`. Older
-  version branches may not carry it. If you are about to port on a branch that
-  lacks it, copy it from the default branch first (this also backs it up there):
-  `git checkout <default_branch> -- .claude/skills/port-version`.
 
 ### Step 1 — Resolve Fabric coordinates for the target
 Look these up; do not guess. Sources (use WebFetch):
@@ -193,10 +224,12 @@ Record the resolved set: `minecraft_version`, `yarn_mappings` (if applicable),
 `loader_version`, `loom_version`, `runtime_java`.
 
 ### Step 2 — Branch
-Per repo convention, **each MC version lives on its own branch**.
+Per repo convention, **each MC version lives on its own branch**. Step 0 already
+switched to it; these are the rules it follows for which branch that is and what a
+new one is created from.
 - If a branch named exactly `<mc_version>` exists: check it out. (It already has
   correct build config; you are bringing its mixin up to the current reference
-  logic.) Remember Step 0 — ensure this skill is on that branch.
+  logic.)
 - Else: create `<mc_version>` from the **nearest existing branch of the same API
   family** (modern vs legacy):
   - Modern target (1.21+/26.x): base off `<default_branch>` (the current
@@ -237,6 +270,13 @@ Edit on the target branch:
   then carries that label. If a base branch predates this block, add it. (Do NOT instead set
   `version = "${minecraft_version}-${mod_version}"` — that older approach leaks
   the MC version into `fabric.mod.json`.)
+- **`gradle/gradle-daemon-jvm.properties`**: `toolchainVersion=<runtime Java>` (the
+  table's "Loom / Java" row: 25 on 26.x, 21 on older targets). Gradle then runs its
+  daemon on a matching installed JDK (IntelliJ's `~/.jdks` included) whatever
+  `JAVA_HOME` or `PATH` point to, so the branch builds from any shell and IntelliJ
+  needs no per-branch Gradle JVM switch (its "Daemon JVM criteria" setting). Write
+  the file by hand: Gradle 9's `updateDaemonJvm` fails without toolchain download
+  repositories, and none are wanted (a missing JDK should fail, not be fetched).
 - **`src/client/resources/fishingrodfix.client.mixins.json`**: set
   `compatibilityLevel` to the target's bytecode level (e.g. `JAVA_17`).
 - **`src/main/resources/fabric.mod.json`**: set `depends.minecraft` (see Step 8
@@ -307,6 +347,17 @@ template for its older `.next()`-style API.
      - the swing: progress, which hand, and the animation type (whack vs stab/none).
      - the view bob and hurt tilt methods both passes call, and the world pass's
        nausea/portal warp (its inputs and formula).
+     - for the body-held rod (third person): the call where the held-item layer
+       submits a held item (its pose, the render state, the arm, the stack, the
+       collector), the player's entity id on its render state (to find the entity),
+       the owner's hook field on the client, the hook renderer's submit (its pose and
+       the collector), `submit`'s offset locals (their float ordinals; the line reads
+       them, not the state, once they are stored), the line's 0.25 lift, the owner's body
+       yaw as drawn (`solveBodyRot`, private → mirror it) and lerped position.
+       Targets that draw directly (no deferred submit, pre-1.21.11) read the rod at
+       the same layer call during `render`, so the owner must be rendered before the
+       hook's line is drawn; check the entity order and whether the line is emitted
+       immediately.
      - the rod sprite: the atlas holding item sprites, the sprite's source-image
        field (for the `@Accessor`), its frame size, its unique frames, and the
        missing-sprite id. Offset frames only where vanilla's own pixel test
@@ -317,7 +368,9 @@ template for its older `.next()`-style API.
      (back-projected onto the rod, see 4.4), `BASE_HUD_FOV`, the item-sway factor,
      the first-person item pose `ITEM_POS`, `ITEM_HEIGHT_SCALE` and the swing
      constants (`ITEM_SWING_*`, `ITEM_PRESWING_ROT_Y`), the `handheld_rod.json`
-     `firstperson_righthand`/`lefthand` transforms, the item pipelines'
+     `firstperson_righthand`/`lefthand` and `thirdperson_righthand`/`lefthand`
+     transforms, the line's 0.25 lift in `stringVertex`, `solveBodyRot`'s rider limits
+     (85°, 50°, 0.2), the item pipelines'
      `ALPHA_CUTOUT`, the nausea warp's skew formula and axis, and (strategy B) the
      segment count: confirm each still holds in the target's source. The vanilla `fishing_rod_cast.png` alpha mask and
      `handheld_rod.json` have been identical in every version checked so far (see
@@ -427,6 +480,37 @@ template for its older `.next()`-style API.
        not positive, not finite), or the world projection is orthographic
        (`m33 != 0`);
      - after an exception, until the next world or dimension (logged once).
+     **The body-held rod** (every line not on the first-person rod: the third-person
+     branch for every player, and the first-person branch while vanilla draws the
+     local player's own body: camera on the player and detached, or the player
+     asleep — the target's own entity-extraction rule). Vanilla's third-person value
+     is a fixed offset from the eye turned by the entity's body yaw; the drawn rod
+     follows the model's pose (crouch lean MC-4490, riding MC-176514 incl. the
+     mount-clamped body yaw, boats MC-198777, the arm swing MC-247425,
+     swimming/crawling MC-270173, sleeping MC-270174, walking, gliding, riptide,
+     death). Don't model that pose: read the rod where it is drawn. At the held-item
+     layer's call that submits the item, for a rod in the holding arm of a player who
+     is fishing, transform the attachment point (the measured sprite tip on the
+     model mid-plane through the `thirdperson_righthand` display transform — not the
+     first-person anchor, which sits by the tip only at first-person scale and angle)
+     by the submitted pose and store it on the player, tagged with the pass
+     (collector + frame; valid while a collector serves one pass per frame). That
+     call runs for every armed entity: gate it on "a body-held hook was extracted
+     this frame", then the type check, in a method small enough to inline, and do
+     the rest out of line. Inject there after other mods' same-call `@Inject`s (a
+     higher priority; Player Animation Library moves the item there). At the hook's
+     submit HEAD, when the owner's rod was drawn earlier in the same pass, take that
+     point through the inverse of the hook's pose (a pass that turns its root cancels
+     out) as the line offset, minus the line's lift, and write it into `submit`'s
+     offset locals (`@ModifyVariable` at their STORE) — no allocation, and the render
+     state's origin keeps vanilla's value. Otherwise use the tip where the rod was
+     last drawn, relative to the body's position and turned with its drawn yaw,
+     while the owner still holds a rod in that arm and is in the same pose and
+     riding state as then; else vanilla's value. Remember that offset whenever a hook
+     of the pass gives the world position, before or after the rod (a mod may draw
+     the body after the hook). Verified on 26.3 with a scratch test mod against the
+     pose the rod is drawn with: exact to float precision in every pose listed, and
+     with a same-call item shift.
      Separately, **hide the line** (not the bobber) of any hook whose rod has left
      its owner's hands, for every player and perspective (MC-310980, MC-211561):
      the server removes such a hook only on its next tick — after the ping, or never
@@ -476,7 +560,8 @@ load). **Remove entries the ported mixin no longer needs.** Prefer an
 targets, makes Loom generate the mixin refmap; unobfuscated targets have none). Fix
 compile errors (these usually mean a name from
 Step 4 is still wrong). A green build proves names/signatures *compile*, but
-**not** that the injection *applies at runtime* — that's Step 7.
+**not** that the injection *applies at runtime* — that's Step 7, which runs only
+after the review rounds (Step 6b) have accepted the code.
 
 **Deliverable artifact:** thanks to the Step 3 jar-naming block, `build` writes
 the player-facing jar to `build/libs/` as
@@ -485,9 +570,58 @@ that exact file exists with the expected name. (`build/libs` also contains a
 default-named `fishingrodfix-<mod_version>-sources.jar` — that's the sources jar,
 not distributed; leave it. The user keeps the version-named publication jars in
 `build/libs` — do **not** delete them, and do not `clean` them away.) If manual
-verification (Step 9) leads to changing the code, **re-run `./gradlew build`** so
-the jar matches the final committed code; the deliverable is the post-verification
-build.
+verification (Step 9) leads to changing the code, run one correctness/performance
+round on the change (Step 6b.2), then **re-run `./gradlew build`** so the jar
+matches the final committed code; the deliverable is the post-verification build.
+
+### Step 6b — Review rounds (no game launch yet)
+**Don't launch Minecraft until these rounds have accepted the code**: no smoke
+test, no `runClient`, no in-game test stand. Every round can still change the code,
+each launch costs minutes and competes with the user's dev client, and a launch
+proves nothing about code that is about to change. The first launch is Step 7, on
+the final code.
+
+Scope: the port's changes, i.e. the diff against the base noted in Step 0,
+uncommitted work included, without the skill sync (`git diff <base> -- .
+':!.claude/skills'` plus untracked files outside it), but with the skill parts you
+adapted to this version in Step 0.6. Pass it to `/reviewer` explicitly: a new
+branch has no remote counterpart for the reviewer's default scope.
+
+1. **Compatibility review: once, in parallel.** With the first green build
+   (Step 6), start `/reviewer <scope> --only compatibility` in the background and
+   don't wait for it. It is by far the slowest reviewer (it reads other mods'
+   sources), and its answer depends on the port's touch points (injection targets
+   and points, the vanilla methods the fix calls), which a round's fixes rarely
+   move. So it runs once per port, never per round, alongside the rounds below.
+   Merge its report into the round in progress when it arrives: a confirmed REAL
+   BUG joins that round's fix list, a limitation goes into `CLAUDE.md`'s Known
+   limitations. If a later fix adds or moves a touch point (a new injector target
+   or injection point, a new call into vanilla code other mods hook), don't rerun
+   it: list those touch points in the final report as not compatibility-checked.
+2. **Rounds.** Run `/reviewer <scope> --only correctness,performance`. Verify
+   every finding (if the reviewers' own reports arrive but no consolidated one,
+   verify them yourself as the reviewer skill's Step 2 describes). Then:
+   - fix every confirmed REAL BUG (a crash path, math that doesn't match the
+     target's vanilla, unsound state, a performance budget violation), together
+     with whatever the fix touches;
+   - keep the WRONG FACTs, IMPROVEMENTs and NITs on a running list without fixing
+     them yet, and pass that list to the next round as "known, deferred — don't
+     re-report";
+   - rebuild (`./gradlew clientClasses`; no game launch) and start the next round
+     right away, with fresh reviewers on the whole scope (a fix can break its
+     neighbours).
+   Stop and ask the user (in their language) instead of fixing when a fix would
+   change intended behaviour, trade one documented limitation for another, add a
+   dependency or configuration, or touch something the user decided before; keep
+   going with the other findings meanwhile. If two rounds disagree on the same
+   point (fix A brings back B), stop and put both sides to the user.
+3. **Accept.** The first round whose verified findings contain no REAL BUG (and
+   whose performance verdict isn't FAIL) ends the loop. If the compatibility report
+   hasn't arrived yet, wait for it now; if it has a REAL BUG, fix it and run one
+   more round. Then fix the deferred list (docs, comments, improvements, nits)
+   without another round: a change that only touches docs or comments, or a small
+   local cleanup, doesn't need one. Rebuild, and take the result as final: only now
+   go on to Step 7.
 
 ### Step 7 — Smoke test (automated gate: "does it load without crashing")
 Entity renderers are constructed during the first resource reload at client
@@ -497,8 +631,8 @@ application (item 2 below) therefore proves the mixins applied — **not** that
 the helper classes link or work: the fix catches its own exceptions, so a
 missing field or method in the helpers only shows up once a line is drawn, as one
 logged "Fishing line correction failed" or "Fishing line visibility check failed"
-error and a vanilla line. Step 9 covers it. The hand-pass injectors are `require = 0` (pitfall 8), so a stale descriptor
-there doesn't crash either — run the smoke test with Mixin's injection counting on,
+error and a vanilla line. Step 9 covers it. The optional injectors (the hand-pass ones and the body-held rod's) are
+`require = 0` (pitfall 8), so a stale descriptor there doesn't crash either — run the smoke test with Mixin's injection counting on,
 which fails any injector that finds fewer targets than its `expect` (default 1).
 
 Procedure (the agent runs this adaptively; do not rely on a brittle kill script):
@@ -536,7 +670,9 @@ Procedure (the agent runs this adaptively; do not rely on a brittle kill script)
    `taskkill /F /T /PID <pid>` with the recorded PID). Never select the process
    by the project path: the user's own dev client matches it too.
 4. Report: PASS (mixin applied, reached menu) or FAIL with the offending log
-   excerpt. On FAIL, return to Step 4 — the descriptor or a mapping is wrong.
+   excerpt. On FAIL, return to Step 4 — the descriptor or a mapping is wrong. Fix
+   it and rebuild; if the fix changes more than that descriptor or target, run one
+   correctness/performance round (Step 6b.2) before launching again.
 
 If the environment cannot run a GUI client, say so and downgrade to Step 6 only,
 flagging that runtime application was **not** verified.
@@ -624,15 +760,31 @@ The items land in hotbar slots 1–5 in that order (rod in 1); slot 9 stays empt
       spyglass and hold right-click to scope: no line end left hanging inside the
       scope view.
 
-**7. F5 and F1**
-- [ ] F5 (third person): the line starts at the body model's hand, as in vanilla.
-      Back to first person: attached at once.
+**7. F5 (the body's rod)** — "attached" here means at the tip of the rod in the
+body's hand. Each check in F5 (back), and a few also in front view (F5 twice):
+- [ ] Standing, walking and sprinting: attached. Left-click the air a few times:
+      the line follows the swinging arm.
+- [ ] Crouch and stand up: attached, no jump.
+- [ ] Rod in the off hand (F): attached on the left; swing it too.
+- [ ] In the boat, and on a pig or horse (`/summon pig`, `/ride @s mount @n[type=pig]`,
+      turn the head far to the side): attached.
+- [ ] Swim in the water, and crawl (stand under a trapdoor at head height and close
+      it): attached.
+- [ ] Glide with the elytra: attached.
+- [ ] Sleep in a bed with the hook out (`/time set night`), in F5 and in first
+      person (the lying body's rod is visible): attached in both. With the rod in the
+      off hand too (MC-188326: the line stays on it).
+- [ ] Turn away so your body leaves the view (F5 front, look far to a side) and back:
+      no jump when the body reappears.
+- [ ] Back to first person: attached at once to the first-person rod.
+
+**8. F1**
 - [ ] F1 (HUD and hand hidden): the line stays exactly where the rod tip was.
       Toggle F1 a few times: no jump either way.
 - [ ] With F1 on: F5, then back to first person: the line is at the hidden rod tip
       at once. Turn F1 off.
 
-**8. Put the rod away with the hook out** (line hiding)
+**9. Put the rod away with the hook out** (line hiding)
 - [ ] `/tick freeze`, cast, switch to the empty slot 9: the line follows the rod
       down and disappears; the bobber stays in the water. Switch back to the rod:
       the line returns to it.
@@ -641,28 +793,34 @@ The items land in hotbar slots 1–5 in that order (rod in 1); slot 9 stays empt
       disappears.
 - [ ] `/tick unfreeze` with the rod put away: the old bobber disappears.
 
-**9. Resource packs**
+**10. Resource packs**
 - [ ] Enable Faithful 32x (or any pack that redraws the rod) in-world: the line is
-      at that rod's tip. F3+T: still right. Disable it: back at the vanilla tip.
+      at that rod's tip, in first person and in F5. F3+T: still right. Disable it:
+      back at the vanilla tip.
       No crash at any point.
 
-**10. World changes**
+**11. World changes**
 - [ ] `/kill`, respawn, cast: attached (the effects are gone now; that's fine).
       Save and quit to the title screen, rejoin, cast: attached.
 
-**11. Optional, if available**
+**12. Optional, if available**
 - [ ] Iris with a shader pack: attached (Iris draws the hand itself).
 - [ ] A second client on the same LAN world: the other player's line starts at
-      their hand; when they scroll off the rod with the hook out, their line
-      disappears at once and the bobber stays.
-- [ ] First Person Model: the line starts at its body-model hand.
+      their rod's tip while they stand, crouch, swing, swim and sleep; when they
+      scroll off the rod with the hook out, their line disappears at once and the
+      bobber stays.
+- [ ] First Person Model (arms shown on the body) and Real Camera: the line starts
+      at the tip of the body's rod.
+- [ ] Emotecraft or Better Combat (Player Animation Library): during an emote or an
+      attack animation the line stays on the rod.
 - [ ] F3 frame-time graph: no change when the rod is taken out and cast.
 
-**12. Log**
+**13. Log**
 - [ ] `run/logs/latest.log` contains none of: "Fishing line correction failed",
       "Fishing line visibility check failed", "Could not read the … sprite",
       "Hand pass tracking isn't active", "No first-person hand pass seen",
-      "Sampling the hidden HUD failed". Any of them means part of the fix silently
+      "Sampling the hidden HUD failed", "Third-person fishing line correction
+      failed". Any of them means part of the fix silently
       fell back to vanilla.
 
 Only proceed to commit after the user confirms every stage. If the line is offset
@@ -671,6 +829,9 @@ re-derive from the target source — do not just re-tune a constant.
 
 ### Step 10 — Git
 After the user's OK:
+- Commit the skill sync from Step 0 first, on its own:
+  `Sync project skills from <default_branch>` (with "adapted to <mc_version>" when
+  Step 0.6 changed anything), so the port's own commit holds only the port.
 - Commit **locally** on the target branch. Match the repo's terse message style,
   e.g. `Port to <mc_version>, v<mod_version>` or, for a backport,
   `Backport v<mod_version> to <mc_version>`. Include the conventional trailers from
@@ -705,23 +866,27 @@ After the user's OK:
 5. **Loom version mismatch** — too-old Loom can't remap/decompile a newer MC.
    Use the develop-page-recommended Loom for the target.
 6. **Wrong runtime Java for `runClient`** — use the target's runtime Java (table
-   "Loom / Java"); a smoke test on the wrong JDK fails for the wrong reason (Step 0).
+   "Loom / Java"); a smoke test on the wrong JDK fails for the wrong reason (Step 0b).
 7. **`compatibilityLevel` / `options.release`** — must match the target's bytecode
    level (table "Loom / Java"); backporting from a newer default branch means
    lowering them, or the jar won't load on the target's Java.
 8. **Refmap / mixin not applying silently** — the config is `required: true`
    with `defaultRequire: 1`, so a missing target crashes at startup (loud, caught
-   by the smoke test). Keep it that way. The two hand-pass injectors are the
+   by the smoke test). Keep it that way. The optional injectors are the
    exception: `require = 0` by design, so another mod blocking them only leaves
-   the line vanilla. A stale descriptor there is just as silent — the smoke test's
-   `countInjections` run (Step 7) catches it, and in game a frame counter that
+   a line vanilla. They are the two hand-pass ones and the body-held rod's five:
+   the held-item layer's read, the hook `submit` HEAD, and the three
+   `@ModifyVariable`s on `submit`'s offset locals (without the read or the HEAD
+   no body-held line moves; without a local that axis stays vanilla). A stale
+   descriptor there is just as silent — the smoke test's `countInjections` run
+   (Step 7) catches it. In game only the hand-pass ones log: a frame counter that
    never runs logs "Hand pass tracking isn't active", a hand mark never seen
    while fishing in first person logs "No first-person hand pass seen" (at most
    one of the two, once).
 9. **Constants/derivation wrong even when it compiles** — the anchor NDC
    `(0.525, -0.1)`, `ITEM_POS`/`ITEM_HEIGHT_SCALE`/swing constants, the
-   `handheld_rod` transform and (strategy B) the segment count 16 are vanilla
-   internals; if they changed, or the math wasn't re-derived for this version, the
+   `handheld_rod` transforms, the line's 0.25 lift, `solveBodyRot`'s rider limits
+   and (strategy B) the segment count 16 are vanilla internals; if they changed, or the math wasn't re-derived for this version, the
    line is off even though it compiles and loads. Step 9 manual testing catches
    this — a passing smoke test does NOT prove the line is in the right place. A
    resource-pack path that silently falls back to vanilla (wrong atlas id, frame
@@ -748,7 +913,7 @@ Extend this as you learn more; never trust it over the decompiled source.
 
 | Concern | 1.20.4 (legacy) | 1.21.4 | 1.21.11 | 26.x |
 |---|---|---|---|---|
-| Injection point (current fix) | `renderFishingLine` HEAD, cancel | `renderFishingLine` HEAD, cancel | `getHandPos` RETURN (strategy A; move to MEV on `Vec3d.add(Vec3d)` when porting) | `getPlayerHandPos`: `@ModifyExpressionValue` on its only `Vec3.add(Vec3)` (first-person branch) |
+| Injection point (current fix) | `renderFishingLine` HEAD, cancel | `renderFishingLine` HEAD, cancel | `getHandPos` RETURN (strategy A; move to MEV on `Vec3d.add(Vec3d)` when porting) | `getPlayerHandPos`: `@ModifyExpressionValue` on its only `Vec3.add(Vec3)` (first-person branch; 26.3 bytecode has the third-person branch first); body-held rod: `FishingHookRenderer.submit` HEAD + `@ModifyVariable` STORE on float ordinals 0/1/2 (`xa`/`ya`/`za`, LVT slots 5–7), and `ItemInHandLayer.submitArmWithItem` at its `ItemStackRenderState.submit` INVOKE |
 | Hand FOV (rod) | `GameRenderer.getFov(camera, δ, false)` (private: AW or `@Invoker`; `(Lnet/minecraft/client/render/Camera;FZ)D`) | same (1.21–1.21.1 `…FZ)D`, 1.21.5+ `…FZ)F`) | same (`…FZ)F`) | `cameraRenderState.hudFov` (`Camera.calculateHudFov`) |
 | Hand-pass state (equip height, sway, scoping, rendered hands) | `HeldItemRenderer` fields (equip progress private → `@Accessor`; verify names) + player fields | same | same | 26.1–26.2 `ItemInHandRenderer` fields (private → `@Accessor`); 26.3 `levelRenderState.playerRenderState.firstPersonHandsAndItems` + `.avatarRenderState` (public) |
 | HUD hidden (F1) + hand gate | `options.hudHidden` (public, toggled between frames); `GameRenderer.renderHand(MatrixStack, Camera, F)` also needs not `renderingPanorama` (early return), first person, a camera entity not `isSleeping()`, game mode not spectator; detached: `camera.isThirdPerson()`; eye: private `Camera.cameraY`/`lastCameraY` (`@Accessor`, smoothed in `updateEyeHeight`), lerped `prevX/Y/Z`, `Camera.update`'s own tick-delta argument; panorama via public `isRenderingPanorama()` | `options.hudHidden`; `renderHand(Camera, F, Matrix4f)` (1.21–1.21.5; verify to 1.21.10), same gate (`!renderingPanorama`); detached: `camera.isThirdPerson()`; eye: as 1.20.4 (`lastX/Y/Z` from 1.21.5) | `options.hudHidden`; `renderHand(F, boolean sleeping, Matrix4f)`, same gate (`!isRenderingPanorama()`); detached: `camera.isThirdPerson()`; eye: as 1.21.5. Camera update after the `render` HEAD counter on all pre-26 targets | 26.1.2: `Options.hideGui` (copied to `OptionsRenderState.hideGui`, no `Hud`); 26.2–26.3: `Minecraft.gui.hud.isHidden()` (copied to `GuiRenderState.isHudHidden` after the level); `renderItemInHand` also needs `!isPanoramicMode`, `hasPlayer` (26.3), first person, `!entityRenderState.isSleeping`, `gameMode.getPlayerMode() != SPECTATOR`; detached: `Camera.isDetached()`; eye: private `Camera.eyeHeight`/`eyeHeightOld` (`@Accessor`); camera update before `extract` |
@@ -771,7 +936,8 @@ Extend this as you learn more; never trust it over the decompiled source.
 | Bob / hurt tilt (both passes) | `GameRenderer` private `bobView`/`tiltViewWhenHurt(MatrixStack, float)` (verify) | same (verify) | same (verify) | 26.3: `GameRenderer` private `bobView`/`bobHurt(CameraRenderState, PoseStack)` → `@Invoker` (26.1–26.2: same) |
 | Nausea / portal warp (world pass only) | inline in `renderWorld`: intensity `lerp(prevNauseaIntensity, nauseaIntensity)`; angle `(ticks + tickDelta)·(NAUSEA ? 7 : 20)°` (private `GameRenderer.ticks`) | 1.21–1.21.1 as 1.20.4; 1.21.5: private `nauseaEffectTime`/`nauseaEffectSpeed`, `getEffectFadeFactor`, `lastNauseaIntensity` | as 1.21.5 | 26.1–26.2: private `spinningEffectTime`/`spinningEffectSpeed`, angle `(time + worldPartialTicks·speed)°`, intensity `max(lerp(portal), getEffectBlendFactor(NAUSEA))`; 26.3: `playerRenderState.spinningEffectAngle`/`portalEffectIntensity`/`nauseaEffectIntensity`. All: `rotate(a, (0, √2/2, √2/2)) · scale(1/skew, 1, 1) · rotate(−a, …)`, `skew = (5/(i²+5) − 0.04i)²` |
 | Strategy B hook (first-person point expression) | `render(Lnet/minecraft/entity/projectile/FishingBobberEntity;FFLnet/minecraft/client/util/math/MatrixStack;Lnet/minecraft/client/render/VertexConsumerProvider;I)V` (full descriptor: a synthetic bridge `render(Entity,…)` also exists): the single `Vec3d.rotateX(F)` on the first-person path; its value is relative to the lerped **feet** (`getStandingEyeHeight()` is added after) | n/a (strategy A) | n/a | n/a |
-| Source layout (reference fix) | — | — | — | 26.3: mixins `FishingHookRendererMixin` (origin MEV + visibility inject/wrap), `GameRendererInvoker`, `GameRendererMixin` (frame count + F1/gate sampling), `FirstPersonHandsAndItemsRendererMixin` (hand drawn), `FishingHookRenderStateMixin` (line-hidden flag), `FishingHookMixin` (seen-with-rod flag), `SpriteContentsAccessor`, `CameraAccessor` (eye height); logic `FishingLineOrigin`, `FirstPersonRod`, `FishingLineVisibility`, `HandPass`, `FishingRodFix` (logger, `isRod`, `holdsRod`) |
+| Source layout (reference fix) | — | — | — | 26.3: mixins `FishingHookRendererMixin` (first-person origin MEV, visibility inject/wrap, body-held line at `submit`: HEAD + 3 `@ModifyVariable`), `GameRendererInvoker`, `GameRendererMixin` (frame count + F1/gate sampling), `FirstPersonHandsAndItemsRendererMixin` (hand drawn), `FishingHookRenderStateMixin` (line-hidden flag, body-rod owner + its partial tick), `FishingHookMixin` (seen-with-rod flag), `SpriteContentsAccessor`, `CameraAccessor` (eye height), `ItemInHandLayerMixin` (drawn rod), `AbstractClientPlayerMixin` (drawn-rod record); logic `FishingLineOrigin` + `FirstPersonRod` (first person), `ThirdPersonLineOrigin` + `ThirdPersonRod` (body-held rod), `RodSprite` (pack tip), `FishingLineVisibility`, `HandPass`, `FishingRodFix` (logger, `isRod`, `holdsRod`) |
+| Body-held rod (third person) | no deferred submit: the item layer renders during `render`; re-derive where the rod and the line are drawn and in which order (unverified) | as 1.20.4 (verify) | deferred `submit` from 1.21.11: verify the layer call and when the line's geometry is built | 26.3: read at `ItemInHandLayer.submitArmWithItem`'s `ItemStackRenderState.submit(PoseStack, SubmitNodeCollector, III)V` INVOKE (priority 1500, after PAL's item bones); `AvatarRenderState.id` → `ClientLevel.getEntity`; `Player.fishing` is set on the client (`FishingHook.setOwner`); the hook's line is finished at `FishingHookRenderer.submit` HEAD (`lineOriginOffset`, lifted 0.25 in `stringVertex`); `FeatureRenderDispatcher.prepareFrame` runs the custom geometry right after `submitFeatures` (Iris' shadow pass: own `SubmitNodeStorage`, own prepare); `LivingEntityRenderer.solveBodyRot` mirrored; body drawn in first person: `LevelExtractor.extractVisibleEntities` (camera entity, and detached or sleeping) |
 | Run-config JVM flags (Loom-generated) | none special | none special | none special | 26.1–26.2: `--sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`; 26.3 (Loom 1.17.21): `-XX:StackShadowPages=32 --sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`. `--sun-misc-unsafe-memory-access` (from Mojang's 26.1–26.2 JSON; on 26.3 Loom adds it, and Mojang's JSON has `--add-exports java.base/jdk.internal.misc=ALL-UNNAMED` instead) stops JDK 21 from starting; without `StackShadowPages` 26.3 crashes natively on in-world reloads |
 | Loader floor (`depends.fabricloader`) | for a port of the current reference: `>=0.15.0` (MixinExtras bundled; pre-rework branches ship `>=0.12.0`) | same | same | `>=0.19.0` as shipped (verified to bundle what the mod uses: sponge-mixin 0.17.1 with `JAVA_25`, MixinExtras 0.5.3 with v2 `WrapWithCondition`, MEV and `@Local`; lower 26.x loaders unchecked); the floor also sets the Mixin compatibility level the loader applies to the mod (`FabricMixinVersions`: floor `>=0.19.0` → 0.17.1, `>=0.15.0` → 0.10.0), so re-run the smoke test after changing it |
 | Sway source | item-renderer `*0.1°` | item-renderer `*0.1°` | `HeldItemRenderer` `(getPitch-renderPitch)*0.1°`/`(getYaw-renderYaw)*0.1°` | `ItemInHandRenderer.renderHandsWithItems` (26.1.2) / `submitHandsWithItems` (26.2) → `FirstPersonHandsAndItemsRenderer.submitHandsWithItems` fed by `FirstPersonHandsAndItems.extractRenderState` (26.3); both `(getViewXRot-xBob)*0.1°`/`(getViewYRot-yBob)*0.1°` |

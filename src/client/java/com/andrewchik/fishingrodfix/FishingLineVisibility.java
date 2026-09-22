@@ -47,11 +47,10 @@ public final class FishingLineVisibility {
     }
 
     // Whether FishingLineOrigin placed the line of the hook being extracted on the drawn first-person
-    // rod. Cleared at the start of extractRenderState, set by the origin hook inside it and read at
-    // its end. A line left at vanilla's value (another mod sent the player down the third-person
-    // branch, or the correction fell back) gets the third-person rule: vanilla's first-person
-    // fallback would start it on the off-hand side, where no rod is. Render-thread only, as is all
-    // state here.
+    // rod. Cleared at the start of extractRenderState, set by the first-person origin hook inside it
+    // and read at its end. Any other line (on a rod held by the body, which shows the live inventory,
+    // or at vanilla's value, whose first-person fallback would start on the off-hand side, where no
+    // rod is) gets the third-person rule. Render-thread only, as is all state here.
     private static boolean lineOnDrawnRod;
 
     // The world the check failed in: lines are never hidden there (vanilla's behavior), so an
@@ -66,9 +65,14 @@ public final class FishingLineVisibility {
         lineOnDrawnRod = false;
     }
 
-    /** Called from {@code getPlayerHandPos}'s first-person branch: whether the origin was corrected. */
+    /** Called from {@code getPlayerHandPos}'s first-person branch: whether the origin is on the drawn first-person rod. */
     public static void onFirstPersonOrigin(boolean onDrawnRod) {
         lineOnDrawnRod = onDrawnRod;
+    }
+
+    /** Whether the hook being extracted has its line on the drawn first-person rod (valid at the end of its extraction). */
+    public static boolean lineOnFirstPersonRod() {
+        return lineOnDrawnRod;
     }
 
     /** Decides, at the end of a hook's {@code extractRenderState}, whether its line is hidden. */

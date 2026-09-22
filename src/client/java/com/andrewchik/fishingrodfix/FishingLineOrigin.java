@@ -34,7 +34,8 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.holdsRod;
 import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
 
 /**
- * Places the first-person fishing line origin on the rod that is actually drawn.
+ * Places the first-person fishing line origin on the rod that is actually drawn (a rod held by a
+ * player's body is {@link ThirdPersonLineOrigin}'s).
  *
  * <p>Vanilla's {@code FishingHookRenderer.getPlayerHandPos} guesses the origin from the eye and the
  * options FOV, while the rod is drawn in a separate hand pass with its own FOV and pose, so the two
@@ -66,10 +67,12 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  *       gliding; mods may move it).</li>
  * </ol>
  * Vanilla's value is kept when no rod can be on screen: the hand pass didn't draw a hand last frame
- * or earlier this frame (sleeping, spectator, mods that hide or replace it; see {@link HandPass}) or
- * a panorama is being captured. A HUD hidden with F1 is the exception: it hides the hand but not the
- * line, a world object, which keeps starting where the rod would be while the rest of vanilla's hand
- * gate holds and a hand was drawn when only the HUD decided ({@link HandPass#onlyHudHidesHand}).
+ * or earlier this frame (spectator, mods that hide or replace it; see {@link HandPass}) or a panorama
+ * is being captured. (While vanilla draws the player's own body, asleep or with a detached camera,
+ * {@link ThirdPersonLineOrigin} places the line on the body's rod and this isn't asked.) A HUD
+ * hidden with F1 is the exception: it hides the hand but not the line, a world object, which keeps
+ * starting where the rod would be while the rest of vanilla's hand gate holds and a hand was drawn
+ * when only the HUD decided ({@link HandPass#onlyHudHidesHand}).
  * Vanilla's value is also kept while scoping, where nothing is drawn but the x0.1 world FOV would put
  * the corrected origin inside the scope view (vanilla's guess lands off-screen); when the drawn rod
  * is posed in a way this doesn't model (its hand excluded or using an item, riptide spin, a

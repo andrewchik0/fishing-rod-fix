@@ -2,7 +2,7 @@
 ![CurseForge Downloads](https://img.shields.io/curseforge/dt/1018847?logo=curseforge)
 ![Modrinth Downloads](https://img.shields.io/modrinth/dt/x9ISUf1U?logo=modrinth)
 
-This mod fixes fishing line rendering bugs in first-person view.
+This mod fixes fishing line rendering bugs in first-person and third-person view.
 
 ### Fixed bugs
 - [MC-6579](https://bugs.mojang.com/browse/MC-6579) — Fishing line ignores FOV modifiers
@@ -14,6 +14,12 @@ This mod fixes fishing line rendering bugs in first-person view.
 - [MC-211561](https://bugs.mojang.com/browse/MC-211561) — Fishing line appears in the opposite hand when switching slots
 - [MC-310980](https://bugs.mojang.com/browse/MC-310980) — The fishing line does not immediately disappear after switching from a fishing rod to another item
 - [MC-311645](https://bugs.mojang.com/browse/MC-311645) — Fishing rod's line stutters when tick is frozen
+- [MC-4490](https://bugs.mojang.com/browse/MC-4490) — Fishing line not attached to fishing rod in third person while crouching
+- [MC-176514](https://bugs.mojang.com/browse/MC-176514) — Fishing rod's rope doesn't render correctly when riding entities (third person mode)
+- [MC-198777](https://bugs.mojang.com/browse/MC-198777) — Fishing line doesn't connect to fishing rod correctly while in a boat and in third person view
+- [MC-247425](https://bugs.mojang.com/browse/MC-247425) — Fishing lines don't follow the movement of arms in third person
+- [MC-270173](https://bugs.mojang.com/browse/MC-270173) — Fishing rod line positioned incorrectly in third-person while crawling/swimming
+- [MC-270174](https://bugs.mojang.com/browse/MC-270174) — Fishing rod line positioned incorrectly in all view perspectives while sleeping
 
 ### Before:
 <img alt="Vanilla: the fishing line ends in mid-air next to the rod" src="docs/before.png">
