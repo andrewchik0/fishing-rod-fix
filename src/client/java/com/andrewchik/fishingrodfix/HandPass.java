@@ -21,7 +21,7 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.LOGGER;
  * {@code renderWorld}'s camera update), and past {@code render}'s {@code skipGameRender}
  * check, through which Dynamic FPS skips most frames while it throttles (a skipped frame counted as
  * one without a hand would put the line at vanilla's value); the hand pass marks the frame when it
- * submits a hand ({@code HeldItemRenderer.renderFirstPersonItem}, reached from vanilla and from Iris's
+ * draws a hand ({@code HeldItemRenderer.renderFirstPersonItem}, reached from vanilla and from Iris's
  * hand renderer). That call is also reached while scoping, where it draws nothing, so
  * {@link FishingLineOrigin} checks scoping itself. The line origin is computed while the world's
  * entities are extracted, before this frame's hand pass, so it reads the previous frame's result: one
@@ -91,12 +91,12 @@ public final class HandPass {
         }
     }
 
-    /** Called when the hand pass submits a hand. */
+    /** Called when the hand pass draws a hand. */
     public static void onHandPass() {
         lastHandPassFrame = frame;
     }
 
-    /** Whether a hand was submitted last frame (or already this frame); false while frames aren't counted. */
+    /** Whether a hand was drawn last frame (or already this frame); false while frames aren't counted. */
     static boolean ranLastFrame() {
         return frame > 0 && lastHandPassFrame >= frame - 1;
     }

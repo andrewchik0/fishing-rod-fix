@@ -10,13 +10,13 @@ import org.joml.Vector3fc;
 
 /**
  * Vanilla's third-person fishing rod: where the line attaches to a rod held in a player's hand, in the
- * space {@code HeldItemFeatureRenderer.renderItem} submits the rod's item in (before the item's own
+ * space {@code HeldItemFeatureRenderer.renderItem} draws the rod's item in (before the item's own
  * display transform).
  *
  * <p>The attachment point is the rod's tip ({@link RodSprite}) on the model's mid-plane, carried through
  * the {@code handheld_rod} display transform that {@code ItemRenderState} applies when it draws the
  * rod. Everything up to the hand is the pose the rod was actually drawn with, which
- * {@link ThirdPersonLineOrigin} reads where it is submitted, so no body pose is modelled here. First
+ * {@link ThirdPersonLineOrigin} reads where it is drawn, so no body pose is modelled here. First
  * person keeps vanilla's own anchor instead ({@link FirstPersonRod}): at the rod's scale and angle
  * there it sits by the tip, but a third-person rod, seen from any side, needs the tip itself.
  */
@@ -43,7 +43,7 @@ final class ThirdPersonRod {
     private ThirdPersonRod() {}
 
     /**
-     * The line's attachment point in the space the rod's item is submitted in by
+     * The line's attachment point in the space the rod's item is drawn in by
      * {@code HeldItemFeatureRenderer}; the same for either hand. Only valid until the next call.
      */
     static Vector3fc lineAnchor(MinecraftClient mc) {

@@ -88,7 +88,7 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * is posed in a way this doesn't model (its hand excluded or using an item, riptide spin); when no
  * rod has been drawn for the current hook; when the owner isn't the local player or the camera isn't
  * on it; if the result is degenerate (a FOV from another mod out of range); and after an exception,
- * until the next world or dimension. The world projection itself isn't read (1.21.10 keeps no copy of
+ * until the next world or dimension. The world projection itself isn't read (1.21.8 keeps no copy of
  * it without the bob and warp), so a mod that changes it rather than {@code getFov} (an orthographic
  * camera, a lens) isn't followed.
  * Whether the line is drawn at all is {@link FishingLineVisibility}'s call.
@@ -288,14 +288,14 @@ public final class FishingLineOrigin {
                 return null;
             }
             // renderItem swings only the attacking hand (preferredHand, the main hand until the first
-            // swing); the other hand gets swing progress 0. On 1.21.10 every idle item swings the
+            // swing); the other hand gets swing progress 0. On 1.21.8 every idle item swings the
             // same way (swingArm; no swing animations yet).
             Hand attackHand = player.preferredHand != null ? player.preferredHand : Hand.MAIN_HAND;
             if (attackHand == hand) {
                 swing = player.getHandSwingProgress(tickProgress);
             }
         }
-        // renderItem's equip dip (1.21.10 has no per-item swap animation scale).
+        // renderItem's equip dip (1.21.8 has no per-item swap animation scale).
         float inverseArmHeight = 1f - (mainHand
                 ? MathHelper.lerp(tickProgress, hands.fishingrodfix$getLastEquipProgressMainHand(), hands.fishingrodfix$getEquipProgressMainHand())
                 : MathHelper.lerp(tickProgress, hands.fishingrodfix$getLastEquipProgressOffHand(), hands.fishingrodfix$getEquipProgressOffHand()));

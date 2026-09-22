@@ -15,8 +15,9 @@
     "HeldItemFeatureRendererMixin",
     "HeldItemRendererAccessor",
     "HeldItemRendererMixin",
-    "OrderedRenderCommandQueueImplMixin",
-    "SpriteContentsAccessor"
+    "SpriteContentsAccessor",
+    "VertexConsumerProviderImmediateMixin",
+    "WorldRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

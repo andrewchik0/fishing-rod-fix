@@ -17,7 +17,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * pass where {@code render} sets the frame's global shader settings ({@code GlobalSettings.set}, once
  * per rendered frame: the first call in its {@code !skipGameRender} block, which Dynamic FPS skips
  * frames, and before the world and its camera update), samples the hidden HUD and the hand gate right
- * after {@code renderWorld} updates the camera (1.21.10 has no separate {@code updateCamera}: after
+ * after {@code renderWorld} updates the camera (1.21.8 has no separate {@code updateCamera}: after
  * the tick and the camera update, before the world's entities and the hand pass), and hands
  * {@link FishingLineOrigin} the two FOVs {@code renderWorld} projects with (its only two
  * {@code getFov} calls: the world's, before the entities, then the hand's). All optional
@@ -25,8 +25,26 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * {@link HandPass} reports no hand pass and the line stays vanilla instead of the game crashing;
  * without the sampling, F1 leaves vanilla's line; without a FOV, {@link FishingLineOrigin} asks
  * {@code getFov} itself.
+ *
+ * <p>Mixin priority 900 is for the two FOV captures. A {@code @ModifyExpressionValue} handler is
+ * inserted right after the instruction that produced the value, and {@code INJECT_APPLY} goes in
+ * ascending priority, so each later application lands nearer the instruction and runs <em>earlier</em>
+ * - the reverse of a callback that goes before its anchor. A priority below the default 1000
+ * therefore makes these the outermost modifiers of the two {@code getFov} calls, i.e. the ones that
+ * see the FOV the pass is really projected with after every other mod has had its say. That is not
+ * hypothetical: <b>Zoomify</b>'s {@code keepHandFov}, which puts the zoom back for the hand when
+ * "Affect Hand FOV" is off, is a {@code @ModifyExpressionValue} at the default priority on this very
+ * instruction (on {@code renderWorld}'s second {@code getFov} from 1.21.6, on
+ * {@code renderItemInHand}'s only one before it), so at equal priority which of the two ran last was
+ * undefined. The other two injects are ordinary {@code @Inject}s and go the other way: at 900 they
+ * run before, not after, other mods' callbacks of the default order at the same points, where the
+ * tie used to be undefined. Nothing depends on that order. The frame counter is bookkeeping and
+ * cannot care; the gate sample reads the camera, so a mod that moved it at this very call -
+ * rather than inside {@code Camera.update}, which is before this point at any priority - would
+ * now be seen a frame late, which no mod in the compatibility matrix does and which would cost
+ * the F1 latch, i.e. vanilla's line.
  */
-@Mixin(GameRenderer.class)
+@Mixin(value = GameRenderer.class, priority = 900)
 public class GameRendererMixin {
     @Inject(
         method = "render(Lnet/minecraft/client/render/RenderTickCounter;Z)V",
