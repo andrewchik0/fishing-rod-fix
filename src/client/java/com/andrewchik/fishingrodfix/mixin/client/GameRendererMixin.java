@@ -23,9 +23,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * ({@code require = 0}): if the counter can't apply,
  * {@link HandPass} reports no hand pass and the line stays vanilla instead of the game crashing;
  * without the sampling, F1 leaves vanilla's line; without a FOV, {@link FishingLineOrigin} asks
- * {@code getFov} itself.
+ * {@code getFov} itself. Priority 900 fixes the order of the FOV captures against other mods'
+ * {@code @ModifyExpressionValue}s on the same two calls: applied first, they sit outermost in the
+ * chain, so they read the FOV vanilla goes on to project with (Zoomify's "affect hand FOV" undo, an
+ * MEV on the same hand-FOV call, is one). It puts the two {@code @Inject}s of this class first at
+ * their own points too, which nothing here depends on: they only count the frame and sample the gate.
  */
-@Mixin(GameRenderer.class)
+@Mixin(value = GameRenderer.class, priority = 900)
 public class GameRendererMixin {
     @Inject(
         method = "render(Lnet/minecraft/client/render/RenderTickCounter;Z)V",

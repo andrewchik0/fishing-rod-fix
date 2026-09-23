@@ -16,8 +16,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Reads a fishing player's rod where it is drawn ({@link ThirdPersonLineOrigin}): at the call that
  * submits a held item, with the pose everything before it built (the body, the arm, the layer's hand
- * offset and item animations, other mods' changes to them). Runs for every armed entity's held item,
- * so the handler starts with a compare and a type check that inline there. Priority 1500 puts it
+ * offset and item animations, other mods' changes to them). The call sits past
+ * {@code renderItem}'s empty check, so it runs once per non-empty held item of an armed entity
+ * and the handler starts with a compare and a type check that inline there. Priority 1500 puts it
  * after other mods' {@code @Inject}s at the same call at default priority (Player Animation
  * Library's and Animatium's item transforms); a wrap, redirect or argument change of the call itself
  * applies after it. Optional ({@code require = 0}): without it a body-held rod's line keeps vanilla's
