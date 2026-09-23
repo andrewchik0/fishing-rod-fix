@@ -1,11 +1,25 @@
 {
   "required": true,
+  "minVersion": "0.8",
   "package": "com.andrewchik.fishingrodfix.mixin.client",
   "compatibilityLevel": "JAVA_17",
   "client": [
-    "FishingBobberEntityRendererMixin"
+    "AbstractClientPlayerEntityMixin",
+    "CameraAccessor",
+    "FishingBobberEntityMixin",
+    "FishingBobberEntityRendererMixin",
+    "GameRendererAccessor",
+    "GameRendererInvoker",
+    "GameRendererMixin",
+    "HeldItemFeatureRendererMixin",
+    "HeldItemRendererAccessor",
+    "HeldItemRendererMixin",
+    "MinecraftClientAccessor",
+    "SpriteContentsAccessor",
+    "VertexConsumerProviderImmediateMixin",
+    "WorldRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1
-	}
+  }
 }
