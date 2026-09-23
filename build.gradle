@@ -1,8 +1,12 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
 plugins {
 	// Minecraft 1.20.1 is obfuscated -> the remapping Loom variant (net.fabricmc.fabric-loom-remap):
-	// the code compiles against yarn names and Loom remaps it to intermediary; the deliverable is the
-	// remapJar output.
+	// the code compiles against yarn names and Loom remaps it to intermediary; remapJar's output is
+	// what shadeJar below turns into the deliverable.
 	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	// Shades MixinExtras into the jar under our own package; see shadeJar.
+	id 'com.gradleup.shadow' version "${shadow_version}"
 	id 'maven-publish'
 }
 
@@ -27,16 +31,25 @@ loom {
 // No access widener: the private members the code reads go through mixin @Accessor/@Invoker.
 // (v0.5 on this branch shipped one for GameRenderer.getFov.)
 
+configurations {
+	// MixinExtras' own classes, for shadeJar alone. Deliberately on no compile or runtime
+	// classpath: the copy the code compiles against, and the one a dev run (runClient) uses, comes
+	// from fabric-loader, which has depended on MixinExtras since 0.15.0. Only the shipped jar
+	// carries a copy of its own, and only under the relocated package.
+	shadedMixinExtras
+}
+
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-	// MixinExtras is bundled (Jar-in-Jar) rather than taken from the loader's own copy, so the mod
-	// keeps working on loaders older than 0.15.0 (the first that ships one). See gradle.properties
-	// for the pinned version and CLAUDE.md for the loader floor it implies.
-	include "io.github.llamalad7:mixinextras-fabric:${project.mixinextras_version}"
+	// MixinExtras is shaded into the jar under com.andrewchik.fishingrodfix.shadow.mixinextras and
+	// started by MixinExtrasBootstrapPlugin, so the mod carries its own copy and asks the loader for
+	// nothing: no nested library mod, hence no floor of its own (mixinextras-fabric declares
+	// >=0.14.25 for itself, which is above what Fabulously Optimized ships). See CLAUDE.md.
+	shadedMixinExtras "io.github.llamalad7:mixinextras-common:${project.mixinextras_version}"
 
 	// No Fabric API: the mod doesn't use it, and leaving it off the classpath keeps compile and
 	// runClient honest about running without it.
@@ -73,14 +86,78 @@ jar {
 	}
 }
 
-// Name the final remapped jar in build/libs as:
+// remapJar is an intermediate here, not the deliverable: MixinExtras has to be relocated *after*
+// Loom has remapped the mixins. tiny-remapper recognises MixinExtras' annotations by their real
+// names - net.fabricmc.tinyremapper.extension.mixin.common.data.Annotation hardcodes
+// "Lcom/llamalad7/mixinextras/injector/ModifyExpressionValue;", ".../injector/v2/WrapWithCondition;"
+// and the rest - and this branch ships no refmap (Fabric-Loom-Mixin-Remap-Type: static), so the
+// annotations' method and at.target strings are the only place the intermediary names live.
+// Relocating before remapJar would leave all five @ModifyExpressionValue and the @WrapWithCondition
+// pointing at yarn names in a jar that runs against intermediary: six injectors that silently never
+// apply. Relocating after costs nothing, because MixinExtras' own classes name no Minecraft type.
+// It is also kept out of build/libs, next to Loom's dev jar in build/devlibs. A remapped jar that
+// has not been through shadeJar is a complete-looking mod - valid fabric.mod.json, valid mixin
+// config, the plugin entry - whose MixinExtrasBootstrapPlugin still points at com.llamalad7 and
+// whose jar has no MixinExtras in it: dropped into mods/ it loads, and then either quietly loses
+// the injectors the loader's copy is too old for or dies on a NoClassDefFoundError. It must not sit
+// in the directory the release jar and the CI artifact upload come from.
+tasks.named('remapJar') {
+	archiveClassifier = 'remapped'
+	destinationDirectory = layout.buildDirectory.dir('devlibs')
+}
+
+// The deliverable in build/libs:
 //   fishingrodfix-1.20-1.20.1-v<mod_version>.jar  (e.g. fishingrodfix-1.20-1.20.1-v0.6.jar)
 // One build covers the 1.20-1.20.1 range (identical render API; see CLAUDE.md and
 // depends.minecraft in fabric.mod.json), so the label is the range, not minecraft_version
-// (= 1.20.1, the version it is compiled and tested against). Set on remapJar only (jar above
-// builds the dev jar), so fabric.mod.json's "version" field stays = mod_version.
-tasks.named('remapJar') {
+// (= 1.20.1, the version it is compiled and tested against). The name is set here, not on jar
+// above (that one builds the dev jar), so fabric.mod.json's "version" field stays = mod_version.
+tasks.register('shadeJar', ShadowJar) {
+	dependsOn tasks.named('remapJar')
+
+	// Loom's remapped jar plus MixinExtras' classes, with every reference to com.llamalad7.mixinextras
+	// rewritten: inside MixinExtras itself, in the annotations on our mixins, and in the
+	// MixinExtrasBootstrap.init() call in MixinExtrasBootstrapPlugin. Nothing is left at the original
+	// package, so the copy can never be confused with the loader's own or another mod's.
+	from zipTree(tasks.named('remapJar').flatMap { it.archiveFile })
+	// project.configurations, not the task's own same-named property.
+	from { project.configurations.shadedMixinExtras.collect { project.zipTree(it) } }
+	relocate 'com.llamalad7.mixinextras', 'com.andrewchik.fishingrodfix.shadow.mixinextras'
+
+	// MixinExtras registers its compile-time annotation processor here. Shadow rewrites class files,
+	// not the provider name inside a service file, so this entry would be the one place in the jar
+	// still naming com.llamalad7 - and it would name a class that no longer exists under that name.
+	// A mod jar has no business registering an annotation processor either, so it goes. The ap
+	// classes themselves stay, relocated with the rest: nothing loads them, and dropping classes is
+	// how a shaded copy ends up missing one.
+	exclude 'META-INF/services/javax.annotation.processing.Processor'
+
+	// Keep the manifest Loom wrote - Fabric-Jar-Type, Fabric-Mapping-Namespace and the
+	// split-environment entry list - instead of the bare one Gradle would generate.
+	exclude 'META-INF/MANIFEST.MF'
+	manifest.from({
+		zipTree(tasks.named('remapJar').flatMap { it.archiveFile })
+			.matching { include 'META-INF/MANIFEST.MF' }.singleFile
+	})
+
 	archiveFileName = "${project.archives_base_name}-1.20-1.20.1-v${project.mod_version}.jar"
+}
+
+tasks.named('assemble') {
+	dependsOn tasks.named('shadeJar')
+}
+
+// The shadow plugin's own shadowJar is not wanted: it fat-jars the whole runtime classpath -
+// Minecraft and every Loom library - into an 84 MB build/libs/fishingrodfix-<version>-all.jar, on
+// every `build`. Only shadeJar above does any shading here.
+tasks.named('shadowJar') {
+	enabled = false
+}
+
+// ...and the variant the plugin adds to the java component goes with it, or every publication would
+// carry an artefact produced by a task that never runs.
+components.java.withVariantsFromConfiguration(configurations.shadowRuntimeElements) {
+	skip()
 }
 
 // configure the maven publication
@@ -89,6 +166,10 @@ publishing {
 		create("mavenJava", MavenPublication) {
 			artifactId = project.archives_base_name
 			from components.java
+			// components.java's own jar is remapJar, which is the pre-shading intermediate here
+			// (see above), so the deliverable has to be added by hand. It takes the unclassified
+			// slot; remapJar keeps its "remapped" classifier.
+			artifact tasks.named('shadeJar')
 		}
 	}
 
