@@ -19,7 +19,11 @@ the coverage section which ones you checked and found clean.
   `@Invoker` names match the real field or method.
 - **Config**: every mixin class is listed in the mixin config and nothing extra; `package`,
   `compatibilityLevel` matching the build's `release`; `fabric.mod.json`'s `depends` (loader floor
-  high enough for every Mixin/MixinExtras feature used, `minecraft` range only what was validated,
+  high enough for every Mixin/MixinExtras feature used — on a Java-21 target using
+  `injector.v2.WrapWithCondition` that floor is `>=0.15.10`, settled against maven.fabricmc.net
+  (0.15.10 is the first loader with sponge-mixin 0.13.3, i.e. `CompatibilityLevel.JAVA_21`, and it
+  bundles MixinExtras 0.3.5, the release that introduced `injector.v2`): don't re-derive it,
+  `minecraft` range only what was validated **with a closed upper bound**,
   `java`), `environment: client`, no Fabric API.
 - **Exception boundary**: every entry from vanilla into the mod's logic catches
   `RuntimeException | LinkageError`, falls back to vanilla's value, logs once (not per frame) and
