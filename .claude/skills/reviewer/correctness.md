@@ -18,11 +18,14 @@ the coverage section which ones you checked and found clean.
   order; `@Local(argsOnly = true)` resolves to exactly one argument of that type). `@Accessor` /
   `@Invoker` names match the real field or method.
 - **Config**: every mixin class is listed in the mixin config and nothing extra; `package`,
-  `compatibilityLevel` matching the build's `release`; `fabric.mod.json`'s `depends` (loader floor
-  high enough for every Mixin/MixinExtras feature used — on a Java-21 target using
-  `injector.v2.WrapWithCondition` that floor is `>=0.15.10`, settled against maven.fabricmc.net
-  (0.15.10 is the first loader with sponge-mixin 0.13.3, i.e. `CompatibilityLevel.JAVA_21`, and it
-  bundles MixinExtras 0.3.5, the release that introduced `injector.v2`): don't re-derive it,
+  `compatibilityLevel` matching the build's `release`; `fabric.mod.json`'s `depends` (the loader
+  floor is the highest of what the compatibility level, MixinExtras and `breaks` need — not
+  "whatever bundles MixinExtras", which is what shipped in v0.6 and locked the 1.20 branch out
+  of Fabulously Optimized. On a Java-21 target it is `>=0.15.10`: 0.15.10 is the first loader
+  bundling a sponge-mixin whose `CompatibilityLevel` has `JAVA_21` (0.13.3), and the same loader
+  bundles MixinExtras 0.3.5, the oldest usable release with `injector.v2`. On the `JAVA_17`
+  branch it is `>=0.14.25`, the floor the bundled `mixinextras-fabric` declares for itself.
+  Don't re-derive these,
   `minecraft` range only what was validated **with a closed upper bound**,
   `java`), `environment: client`, no Fabric API.
 - **Exception boundary**: every entry from vanilla into the mod's logic catches
