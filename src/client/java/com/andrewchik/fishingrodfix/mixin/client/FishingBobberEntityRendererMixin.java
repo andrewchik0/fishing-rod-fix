@@ -1,106 +1,182 @@
 package com.andrewchik.fishingrodfix.mixin.client;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
+import com.andrewchik.fishingrodfix.FishingLineOrigin;
+import com.andrewchik.fishingrodfix.FishingLineVisibility;
+import com.andrewchik.fishingrodfix.ThirdPersonLineOrigin;
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
+import com.llamalad7.mixinextras.sugar.Local;
 import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.entity.FishingBobberEntityRenderer;
+import net.minecraft.client.render.entity.state.FishingBobberEntityState;
 import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.item.FishingRodItem;
-import net.minecraft.util.Arm;
-import net.minecraft.util.Hand;
-import net.minecraft.util.math.MathHelper;
-import org.joml.Vector3f;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.projectile.FishingBobberEntity;
+import net.minecraft.util.math.Vec3d;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+/**
+ * Hooks the fishing line origin (the logic lives in {@link FishingLineOrigin} for the first-person rod
+ * and in {@link ThirdPersonLineOrigin} for a rod held by a player's body) and hides the line of a hook
+ * whose rod has left its owner's hands ({@link FishingLineVisibility}).
+ *
+ * <p>On 1.21.5 nothing is deferred: {@code render} draws the catenary itself, segment by segment,
+ * from the origin offset {@code updateRenderState} took from {@code getHandPos}. For the first-person
+ * rod we modify the value of that method's only {@code Vec3d.add(Vec3d)} call,
+ * {@code player.getCameraPosVec(tickProgress).add(vec3d)}, which exists only in its first-person
+ * branch ({@code allow = 1} turns a second match into a load failure). Hooking the branch's result
+ * rather than the method's return leaves the players other mods send down the third-person branch
+ * (First Person Model, and Real Camera on the versions it has a build for, while they draw the local
+ * player's body) to the body-held rod,
+ * and MixinExtras chains us with other mods that modify the same value. A body-held rod's line is
+ * placed at {@code render}, where the rod drawn earlier in the same pass is known: straight into the
+ * offset locals {@code render} reads, so the state's {@code pos} keeps its extracted value.
+ */
 @Mixin(FishingBobberEntityRenderer.class)
 public class FishingBobberEntityRendererMixin {
-    @Unique
-    private static final Vector3f translate = new Vector3f();
-    @Unique
-    private static int counter = 0;
-
-    @Inject(method = "Lnet/minecraft/client/render/entity/FishingBobberEntityRenderer;renderFishingLine(FFFLnet/minecraft/client/render/VertexConsumer;Lnet/minecraft/client/util/math/MatrixStack$Entry;FF)V", at = @At("HEAD"), cancellable = true)
-    private static void renderFishingLine(float x, float y, float z, VertexConsumer buffer, MatrixStack.Entry matrices, float segmentStart, float segmentEnd, CallbackInfo ci) {
-        float f = x * segmentStart;
-        float g = y * (segmentStart * segmentStart + segmentStart) * 0.5F + 0.25F;
-        float h = z * segmentStart;
-        float i = x * segmentEnd - f;
-        float j = y * (segmentEnd * segmentEnd + segmentEnd) * 0.5F + 0.25F - g;
-        float k = z * segmentEnd - h;
-        float l = MathHelper.sqrt(i * i + j * j + k * k);
-        i /= l;
-        j /= l;
-        k /= l;
-        buffer.vertex(matrices.getPositionMatrix().translate(getTranslate()), f, g, h).color(0, 0, 0, 255).normal(matrices, i, j, k);
-        ci.cancel();
+    @ModifyExpressionValue(
+        method = "getHandPos(Lnet/minecraft/entity/player/PlayerEntity;FF)Lnet/minecraft/util/math/Vec3d;",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/util/math/Vec3d;add(Lnet/minecraft/util/math/Vec3d;)Lnet/minecraft/util/math/Vec3d;"),
+        allow = 1
+    )
+    private Vec3d fishingrodfix$correctFirstPersonOrigin(Vec3d handPos, @Local(argsOnly = true) PlayerEntity owner) {
+        // Asleep (or with a third-person camera) vanilla draws the player's own body, rod in hand: the
+        // line belongs on that rod (placed at render by ThirdPersonLineOrigin), not the first-person one.
+        if (ThirdPersonLineOrigin.bodyDrawnInFirstPerson(owner)) {
+            FishingLineVisibility.onFirstPersonOrigin(false);
+            return handPos;
+        }
+        Vec3d origin = FishingLineOrigin.correct(handPos, owner);
+        // Every fallback returns handPos itself. Where FishingLineOrigin keeps vanilla's value with the
+        // camera on the player, only a body drawn earlier in the same pass (a mod's first-person body,
+        // Iris' shadow pass) moves the line (ThirdPersonLineOrigin).
+        boolean onDrawnRod = origin != handPos;
+        FishingLineVisibility.onFirstPersonOrigin(onDrawnRod);
+        if (!onDrawnRod) {
+            ThirdPersonLineOrigin.onFirstPersonVanilla(owner);
+        }
+        return origin;
     }
 
-    @Unique
-    private static Vector3f getTranslate() {
-        if (counter == 17) {
-            calculateTranslate();
-            counter = 0;
-        }
-        counter++;
-        return translate;
+    /**
+     * Starts a hook's extraction with no line origin placed yet ({@link FishingLineVisibility},
+     * {@link ThirdPersonLineOrigin}) and its render state back at vanilla's behaviour: one
+     * {@code EntityRenderer} keeps a single render state for every entity of its type, so without the
+     * reset a hook that doesn't reach the TAIL below would inherit the previous hook's decisions.
+     * {@code updateRenderState} returns early for a hook with no player owner (after zeroing the
+     * state's {@code pos}), and Mixin's {@code TAIL} is the method's <em>last</em> return, so this
+     * reset is what leaves such a hook at vanilla's behaviour. Vanilla never draws one
+     * ({@code shouldRender} requires an owner), but another mod's entity collection may extract it.
+     */
+    @Inject(
+        method = "updateRenderState(Lnet/minecraft/entity/projectile/FishingBobberEntity;Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;F)V",
+        at = @At("HEAD")
+    )
+    private void fishingrodfix$beginExtraction(FishingBobberEntity hook, FishingBobberEntityState state, float tickProgress, CallbackInfo ci) {
+        FishingLineVisibility.beginExtraction();
+        ThirdPersonLineOrigin.beginExtraction();
+        ((FishingLineVisibility.State) state).fishingrodfix$setLineHidden(false);
+        ((ThirdPersonLineOrigin.HookState) state).fishingrodfix$setBodyRodOwner(null, 0f, false);
     }
 
-    @Unique
-    private static float getTickDelta() {
-        return MinecraftClient.getInstance().isPaused() ? MinecraftClient.getInstance().renderTickCounter.tickDelta : MinecraftClient.getInstance().renderTickCounter.tickDeltaBeforePause;
+    /**
+     * Decides, for every hook and perspective, whether its line is drawn ({@link FishingLineVisibility})
+     * and, if it isn't on the first-person rod, whose drawn rod it moves onto when the hook is drawn
+     * ({@link ThirdPersonLineOrigin}). {@code updateRenderState} calls {@code getHandPos} before this
+     * TAIL, so this also learns whether the line origin was placed on the drawn first-person rod. The
+     * owner is vanilla's own local, which saves asking the hook again; it is never null here, because
+     * vanilla returns early for a hook without one and {@code TAIL} is the method's last return (the
+     * HEAD above is what covers that hook). Both helpers still take a null owner, as cheap defence
+     * against a mod that nulls the local: they then leave the defaults the HEAD set.
+     */
+    @Inject(
+        method = "updateRenderState(Lnet/minecraft/entity/projectile/FishingBobberEntity;Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;F)V",
+        at = @At("TAIL")
+    )
+    private void fishingrodfix$decideLine(FishingBobberEntity hook, FishingBobberEntityState state, float tickProgress, CallbackInfo ci,
+                                          @Local(ordinal = 0) PlayerEntity owner) {
+        boolean hidden = FishingLineVisibility.decideLineHidden(hook, owner);
+        ((FishingLineVisibility.State) state).fishingrodfix$setLineHidden(hidden);
+        ThirdPersonLineOrigin.onHookExtracted(state, owner, FishingLineVisibility.lineOnFirstPersonRod(), hidden, tickProgress);
     }
 
-    @Unique
-    private static void calculateTranslate() {
-        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+    /**
+     * Works out where a body-held rod's line starts ({@link ThirdPersonLineOrigin}), before
+     * {@code render} reads the origin. Optional, as are the three below: without them that line keeps
+     * vanilla's value.
+     */
+    @Inject(
+        method = "render(Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;Lnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At("HEAD"),
+        require = 0
+    )
+    private void fishingrodfix$placeOnDrawnRod(FishingBobberEntityState state, MatrixStack matrices, VertexConsumerProvider vertexConsumers, int light,
+                                               CallbackInfo ci) {
+        ThirdPersonLineOrigin.onHookDrawn(state, matrices, vertexConsumers);
+    }
 
-        if (MinecraftClient.getInstance().gameRenderer.getCamera().isThirdPerson() || player == null) {
-            translate.x = 0;
-            translate.y = 0;
-            translate.z = 0;
-            return;
-        }
+    /** {@code render}'s {@code f}, the line offset's x read from {@code pos} (its first float local). */
+    @ModifyVariable(
+        method = "render(Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;Lnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At("STORE"),
+        ordinal = 0,
+        require = 0
+    )
+    private float fishingrodfix$lineX(float x, @Local(argsOnly = true) FishingBobberEntityState state) {
+        return ThirdPersonLineOrigin.lineOffset(state, 0, x);
+    }
 
-        float width = MinecraftClient.getInstance().getWindow().getWidth();
-        float height = MinecraftClient.getInstance().getWindow().getHeight();
-        float ratio = width / height;
-        ratio -= 16f / 9f;
+    /** {@code render}'s {@code g} (its second float local). */
+    @ModifyVariable(
+        method = "render(Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;Lnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At("STORE"),
+        ordinal = 1,
+        require = 0
+    )
+    private float fishingrodfix$lineY(float y, @Local(argsOnly = true) FishingBobberEntityState state) {
+        return ThirdPersonLineOrigin.lineOffset(state, 1, y);
+    }
 
-        ratio /= 68f; // Experimental value that normalizes rendering
+    /** {@code render}'s {@code h} (its third float local). */
+    @ModifyVariable(
+        method = "render(Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;Lnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At("STORE"),
+        ordinal = 2,
+        require = 0
+    )
+    private float fishingrodfix$lineZ(float z, @Local(argsOnly = true) FishingBobberEntityState state) {
+        return ThirdPersonLineOrigin.lineOffset(state, 2, z);
+    }
 
-        // FOV corrections
-        float fov = MinecraftClient.getInstance().options.getFov().getValue().floatValue();
-        ratio /= (70f - fov) / 180f + 1;
-
-        // TODO: add fov effects
-        // float fovEffected = (float) MinecraftClient.getInstance().gameRenderer.getFov(MinecraftClient.getInstance().gameRenderer.getCamera(), getTickDelta(), true);
-        // float fovDiff = fovEffected - fov;
-        // ratio -= fovDiff / 1000f;
-
-        if (MinecraftClient.getInstance().options.getMainArm().getValue() == Arm.LEFT) {
-            ratio *= -1;
-        }
-        if (player.getStackInHand(Hand.OFF_HAND).getItem() instanceof FishingRodItem) {
-            ratio *= -1;
-        }
-
-        // Apply item acceleration when camera is moving
-        float h = MathHelper.lerp(getTickDelta(), player.lastRenderPitch, player.renderPitch);
-        float i = MathHelper.lerp(getTickDelta(), player.lastRenderYaw, player.renderYaw);
-
-        // Crouching animation
-        float crouch = 0;
-        if (player.isOnGround())
-            crouch = (float)(MinecraftClient.getInstance().gameRenderer.getCamera().getPos().y - player.getPos().y) - player.getStandingEyeHeight();
-
-        translate.x = ratio + (player.getYaw(getTickDelta()) - i) * 0.00011f;
-        translate.y = (player.getPitch(getTickDelta()) - h) * 0.0001f + crouch / 16f;
-        translate.z = 0;
-
-        translate.rotateY(player.getYaw(getTickDelta()) / -180f * MathHelper.PI);
+    /**
+     * Skips the catenary of a hidden line; the bobber is still drawn. 1.21.5 emits the line straight
+     * into the {@code line_strip} buffer, so the condition sits on the one {@code renderFishingLine}
+     * call site, which {@code render}'s loop reaches once per segment (17 times) for a hook whose line
+     * is drawn at all. Optional here, unlike on the deferred versions where the same condition sits on
+     * a generic {@code submitCustom}: a fishing-specific private method is the natural target for a
+     * mod that redraws the line, and hiding it is not what the fix is for — losing this leaves the
+     * line visible, i.e. vanilla, where a required injector would mean a startup crash for everyone
+     * running both mods. A stale descriptor here is caught by the smoke test's injection counting.
+     */
+    @WrapWithCondition(
+        method = "render(Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;Lnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/entity/FishingBobberEntityRenderer;renderFishingLine(FFF"
+                + "Lnet/minecraft/client/render/VertexConsumer;Lnet/minecraft/client/util/math/MatrixStack$Entry;FF)V"),
+        require = 0
+    )
+    private boolean fishingrodfix$skipHiddenLine(float x, float y, float z, VertexConsumer buffer, MatrixStack.Entry matrices,
+                                                 float segmentStart, float segmentEnd,
+                                                 @Local(argsOnly = true) FishingBobberEntityState state) {
+        return !((FishingLineVisibility.State) state).fishingrodfix$isLineHidden();
     }
 }
