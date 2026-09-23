@@ -21,6 +21,9 @@ This mod fixes fishing line rendering bugs in first-person and third-person view
 - [MC-270173](https://bugs.mojang.com/browse/MC-270173) — Fishing rod line positioned incorrectly in third-person while crawling/swimming
 - [MC-270174](https://bugs.mojang.com/browse/MC-270174) — Fishing rod line positioned incorrectly in all view perspectives while sleeping
 
+### Incompatible mods
+- [Enchanted Fishing Line](https://modrinth.com/mod/enchanted-fishing-line): it carries its own copy of an older version of this fix, which would apply on top of this one. The game won't start with both installed.
+
 ### Before:
 <img alt="Vanilla: the fishing line ends in mid-air next to the rod" src="docs/before.png">
 
