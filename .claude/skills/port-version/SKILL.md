@@ -119,8 +119,8 @@ differ.
 **A. World-space hand-position correction (preferred where available).** Modern
 renderers compute the line origin as a world-space point returned by a method —
 `getHandPos` (1.21.x, including 1.21.11) or `getPlayerHandPos` (26.x) — and,
-from 1.21.9, emit the line through a deferred render-command `submit` (1.21.0–1.21.5
-draw it directly in `render`; verified on 1.21.5 and 1.21.6–1.21.8). The method has a first-person
+from 1.21.9, emit the line through a deferred render-command `submit` (1.21.0–1.21.8
+draw it directly in `render`; verified on 1.21.4, 1.21.5 and 1.21.6–1.21.8). The method has a first-person
 branch (`eyePos.add(viewVec)`, i.e. `Vec3.add(Vec3)`/`Vec3d.add(Vec3d)`) and a
 third-person branch (`add(double, double, double)`). Hook **only the first-person
 branch's result** with MixinExtras `@ModifyExpressionValue` on that single

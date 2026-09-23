@@ -82,7 +82,8 @@ decompiled source of **this branch** and compare:
     extremes, nausea and portal with the screen-effect scale from 0 to 1, view bobbing on and off,
     hurt tilt;
   - aspect ratios (16:9, 21:9, 32:9, 4:3, a tall or tiny window);
-  - `/tick freeze` and `/tick step`, high ping, other players' hooks, hooks with no or a non-player
+  - `/tick freeze` and `/tick step` (where the game has them: 1.20.3+), high ping, other players'
+    hooks, hooks with no or a non-player
     owner, several hooks at once, a resource reload (F3+T) mid-cast.
 - Counters and flags: overflow, the value before the first frame, and what a skipped hook leaves
   behind.
