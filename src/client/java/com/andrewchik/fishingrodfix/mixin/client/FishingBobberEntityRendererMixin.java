@@ -1,144 +1,182 @@
 package com.andrewchik.fishingrodfix.mixin.client;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.render.Camera;
+import com.andrewchik.fishingrodfix.FishingLineOrigin;
+import com.andrewchik.fishingrodfix.FishingLineVisibility;
+import com.andrewchik.fishingrodfix.ThirdPersonLineOrigin;
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
+import com.llamalad7.mixinextras.sugar.Local;
+import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.entity.FishingBobberEntityRenderer;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.entity.projectile.FishingBobberEntity;
 import net.minecraft.util.math.Vec3d;
-import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Fixes the vanilla first-person fishing-line offset bug on Minecraft 1.21 and 1.21.1.
+ * Hooks the fishing line origin (the logic lives in {@link FishingLineOrigin} for the first-person rod
+ * and in {@link ThirdPersonLineOrigin} for a rod held by a player's body) and hides the line of a hook
+ * whose rod has left its owner's hands ({@link FishingLineVisibility}).
  *
- * <p>On 1.21 / 1.21.1 the world-space line origin is the value returned by {@code getHandPos}:
- * {@link FishingBobberEntityRenderer}{@code .render} calls it for the local player and then draws
- * the catenary from that hand point to the bobber via {@code renderFishingLine} (the renderer is
- * still entity-based here &mdash; there is no render state yet, so the bobber&rarr;hand delta is
- * computed inline). Correcting {@code getHandPos}'s returned point therefore shifts the rod-tip end
- * of the line by exactly that amount &mdash; the same approach as the 1.21.5, 1.21.11 and 26.x
- * builds (where the method is {@code getHandPos} / {@code getPlayerHandPos}). The catenary itself is
- * left untouched.
+ * <p>On 1.21.1 there is no render state and nothing is deferred: one {@code render} call asks
+ * {@code getHandPos} for the origin and draws the catenary itself, segment by segment, from the
+ * offset between that point and the bobber. For the first-person rod we modify the value of
+ * {@code getHandPos}' only {@code Vec3d.add(Vec3d)} call,
+ * {@code player.getCameraPosVec(tickDelta).add(vec3d)}, which exists only in its first-person branch
+ * ({@code allow = 1} turns a second match into a load failure). Hooking the branch's result rather
+ * than the method's return leaves the players other mods send down the third-person branch (First
+ * Person Model, and Real Camera on the versions it has a build for, while they draw the local
+ * player's body) to the body-held rod, and MixinExtras chains us with other mods that modify the same
+ * value. A body-held rod's line goes straight into the offset locals {@code render} stores next, so
+ * the value {@code getHandPos} hands every other mod stays vanilla's.
  *
- * <p>The whole correction is derived from vanilla's own quantities and from projection geometry
- * &mdash; no tuned magic numbers &mdash; so it stays robust across renderer changes:
- * <ol>
- *   <li><b>Aspect ratio + FOV (exact).</b> The visible rod is drawn in a separate hand pass at the
- *       <em>options</em> FOV (no sprint/speed multiplier) and the real window aspect ratio, while
- *       the line (a world point) is projected by the world's <em>actual</em> FOV (options FOV times
- *       the sprint/speed multiplier). {@code getHandPos} builds the origin at the options FOV and
- *       real aspect ratio. We re-project: decompose the eye&rarr;rod-tip vector along the camera
- *       axes and rescale its horizontal component by
- *       {@code (16:9 / realAspect) * tan(actualFov/2)/tan(baseFov/2)} and its vertical component by
- *       {@code tan(actualFov/2)/tan(baseFov/2)}. The hand-calibration constants ({@code 0.525},
- *       {@code -0.1}) and the {@code 960} scale cancel out; only the projection laws and the rod's
- *       16:9 calibration aspect remain. This also keeps the correct hand side (main/off hand,
- *       left-handed), since that sign is already in vanilla's vector.</li>
- *   <li><b>Item sway.</b> {@code HeldItemRenderer} rotates the whole first-person hand about the
- *       view axes by {@code (getPitch-renderPitch)*0.1deg} and {@code (getYaw-renderYaw)*0.1deg}.
- *       A rotation about the eye by angle {@code a} shifts a point's on-screen position by exactly
- *       {@code a}, independent of distance/FOV, so we rotate the eye&rarr;rod-tip vector by the same
- *       angles about the same camera axes; the line origin then tracks the swaying rod tip by
- *       construction.</li>
- *   <li><b>Crouch sag-jump.</b> {@code getCameraPosVec} anchors the line using the <em>stepped</em>
- *       {@code getStandingEyeHeight()} (it jumps on the pose change) while the camera sits at a
- *       <em>smoothed</em> eye height ({@code Camera.updateEyeHeight}); their difference
- *       {@code cameraY-eyePosY} is 0 once settled and non-zero only during the crouch animation,
- *       exactly cancelling the jump.</li>
- * </ol>
- *
- * <p>Like the 1.21.11 build, 1.21.1 has no {@code Camera.getFov()}: the actual world FOV is the
- * options FOV times the smoothed {@code GameRenderer} fov multiplier (exposed via the access
- * widener), which is what the world &mdash; and therefore the line &mdash; is projected with.
- * (The only API difference from 1.21.11 is that the camera position getter is {@code Camera.getPos()}
- * here, not {@code getCameraPos()}.)
+ * <p>The order inside {@code render} is: the head reset, then {@code getHandPos} (which the
+ * first-person hook corrects from the inside), then the decision on this hook's line right after that
+ * call returns, then the three offset stores, then the catenary loop. The method's full descriptor is
+ * spelled out at every injection because a synthetic bridge {@code render(Entity, …)} exists.
  */
 @Mixin(FishingBobberEntityRenderer.class)
 public class FishingBobberEntityRendererMixin {
-    // The aspect ratio at which the first-person rod model is calibrated (its rod tip sits
-    // at NDC x 0.525 there). Fundamental to the hand model, not a tuning knob.
-    @Unique private static final float REFERENCE_ASPECT_RATIO    = 16f / 9f;
-
-    // Vanilla's own item-sway factor, from HeldItemRenderer (the first-person hand rotation).
-    // Not a tuning constant: if Mojang changes the sway, mirror their value here.
-    @Unique private static final float VANILLA_ITEM_SWAY_DEGREES = 0.1f;
-
-    @Inject(
+    @ModifyExpressionValue(
         method = "getHandPos(Lnet/minecraft/entity/player/PlayerEntity;FF)Lnet/minecraft/util/math/Vec3d;",
-        at = @At("RETURN"),
-        cancellable = true
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/util/math/Vec3d;add(Lnet/minecraft/util/math/Vec3d;)Lnet/minecraft/util/math/Vec3d;"),
+        allow = 1
     )
-    private void fishingrodfix$correctHandPos(PlayerEntity owner, float handRotation, float tickProgress, CallbackInfoReturnable<Vec3d> cir) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        ClientPlayerEntity player = mc.player;
-
-        // Only the local player's first-person line origin is mis-placed; the third-person
-        // branch (and other players) already match their visible rod, so leave them alone.
-        // This mirrors getHandPos's own first-person condition exactly.
-        if (player == null || owner != player || !mc.options.getPerspective().isFirstPerson()) {
-            return;
+    private Vec3d fishingrodfix$correctFirstPersonOrigin(Vec3d handPos, @Local(argsOnly = true) PlayerEntity owner) {
+        // Asleep (or with a third-person camera) vanilla draws the player's own body, rod in hand: the
+        // line belongs on that rod (placed further down in render by ThirdPersonLineOrigin), not the
+        // first-person one.
+        if (ThirdPersonLineOrigin.bodyDrawnInFirstPerson(owner)) {
+            FishingLineVisibility.onFirstPersonOrigin(false);
+            return handPos;
         }
-
-        // The world-render camera (same one getHandPos used). Never null here, but be defensive.
-        Camera camera = mc.gameRenderer.getCamera();
-        if (camera == null) {
-            return;
+        Vec3d origin = FishingLineOrigin.correct(handPos, owner);
+        // Every fallback returns handPos itself. Where FishingLineOrigin keeps vanilla's value with the
+        // camera on the player, only a body drawn earlier in the same pass (a mod's first-person body,
+        // Iris' shadow pass) moves the line (ThirdPersonLineOrigin).
+        boolean onDrawnRod = origin != handPos;
+        FishingLineVisibility.onFirstPersonOrigin(onDrawnRod);
+        if (!onDrawnRod) {
+            ThirdPersonLineOrigin.onFirstPersonVanilla(owner);
         }
-
-        cir.setReturnValue(fishingrodfix$correct(mc, camera, player, tickProgress, cir.getReturnValue()));
+        return origin;
     }
 
-    @Unique
-    private static Vec3d fishingrodfix$correct(MinecraftClient mc, Camera camera, ClientPlayerEntity player, float tickProgress, Vec3d handPos) {
-        Vec3d eyePos = player.getCameraPosVec(tickProgress);
+    /**
+     * Starts a hook's drawing with no line origin placed yet ({@link FishingLineVisibility},
+     * {@link ThirdPersonLineOrigin}) and back at vanilla's behaviour, so that a hook whose decision
+     * below doesn't run keeps its line where vanilla puts it. Vanilla's own entity loop does reach a
+     * hook whose player owner has gone — 1.21.1's {@code shouldRender} is a distance test with no
+     * owner check, unlike the render-state branches' — and {@code render} returns at its first
+     * instruction for one, drawing nothing; this reset is what leaves such a hook alone.
+     */
+    @Inject(
+        method = "render(Lnet/minecraft/entity/projectile/FishingBobberEntity;FFLnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At("HEAD")
+    )
+    private void fishingrodfix$beginRender(FishingBobberEntity hook, float yaw, float tickDelta, MatrixStack matrices,
+                                           VertexConsumerProvider vertexConsumers, int light, CallbackInfo ci) {
+        FishingLineVisibility.beginRender();
+        ThirdPersonLineOrigin.beginRender();
+    }
 
-        // Orthonormal camera basis (world space). +right == -left.
-        Vector3f fwd   = new Vector3f(camera.getHorizontalPlane());
-        Vector3f up    = new Vector3f(camera.getVerticalPlane());
-        Vector3f right = new Vector3f(camera.getDiagonalPlane()).negate();
+    /**
+     * Decides, for every hook and perspective, whether its line is drawn ({@link FishingLineVisibility})
+     * and, if it isn't on the first-person rod, whether it moves onto the owner's drawn rod
+     * ({@link ThirdPersonLineOrigin}). Sits right after {@code render}'s only {@code getHandPos} call,
+     * so the first-person hook above has already run and its result is known. The owner is vanilla's
+     * own local, which saves asking the hook again; it is never null here, because vanilla returns
+     * before this point for a hook without one. Both helpers still take a null owner, as cheap defence
+     * against a mod that nulls the local: they then leave the defaults the head set.
+     */
+    @Inject(
+        method = "render(Lnet/minecraft/entity/projectile/FishingBobberEntity;FFLnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/entity/FishingBobberEntityRenderer;getHandPos("
+                + "Lnet/minecraft/entity/player/PlayerEntity;FF)Lnet/minecraft/util/math/Vec3d;", shift = At.Shift.AFTER)
+    )
+    private void fishingrodfix$decideLine(FishingBobberEntity hook, float yaw, float tickDelta, MatrixStack matrices,
+                                          VertexConsumerProvider vertexConsumers, int light, CallbackInfo ci,
+                                          @Local(ordinal = 0) PlayerEntity owner) {
+        boolean hidden = FishingLineVisibility.decideLineHidden(hook, owner);
+        ThirdPersonLineOrigin.onHookDecided(owner, FishingLineVisibility.lineOnFirstPersonRod(), hidden, tickDelta);
+    }
 
-        // Vanilla's eye->rod-tip vector (already includes the correct hand side and swing).
-        Vector3f viewVec = new Vector3f(
-                (float)(handPos.x - eyePos.x),
-                (float)(handPos.y - eyePos.y),
-                (float)(handPos.z - eyePos.z));
+    /**
+     * {@code render}'s {@code k}, the line offset's x: its fifth float local (LVT slot 14), after the
+     * two float parameters {@code f}/{@code g} and the swing pair {@code h}/{@code j}, and the third
+     * of the method's five float stores. Also where the body-held origin is worked out
+     * ({@link ThirdPersonLineOrigin#onHookDrawn}): the pose is the one the catenary is drawn with
+     * ({@code render} pushes twice, poses and pops the bobber's copy, so the top of the stack is again
+     * what it was at the head), and 1.21.1 has no earlier place that knows both the decision above and
+     * that pose. Optional, as are the two below: without them a body-held line keeps vanilla's value.
+     */
+    @ModifyVariable(
+        method = "render(Lnet/minecraft/entity/projectile/FishingBobberEntity;FFLnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At("STORE"),
+        ordinal = 4,
+        require = 0
+    )
+    private float fishingrodfix$lineX(float x, @Local(argsOnly = true) FishingBobberEntity hook,
+                                      @Local(argsOnly = true, ordinal = 1) float tickDelta,
+                                      @Local(argsOnly = true) MatrixStack matrices,
+                                      @Local(argsOnly = true) VertexConsumerProvider vertexConsumers,
+                                      @Local(ordinal = 0) PlayerEntity owner) {
+        ThirdPersonLineOrigin.onHookDrawn(hook, owner, tickDelta, matrices, vertexConsumers);
+        return ThirdPersonLineOrigin.lineOffset(0, x);
+    }
 
-        // --- 1. Aspect-ratio / FOV re-projection (exact) ---
-        float baseFov   = mc.options.getFov().getValue().intValue();   // hand model + getHandPos use this
-        // 1.21.5 has no Camera.getFov(): the world/line FOV is the options FOV times the smoothed
-        // sprint/speed multiplier (the hand pass uses baseFov only).
-        float actualFov = baseFov * MathHelper.lerp(tickProgress, mc.gameRenderer.lastFovMultiplier, mc.gameRenderer.fovMultiplier);
-        float realAR    = (float) mc.getWindow().getWidth() / mc.getWindow().getHeight();
-        float tanRatio  = (float)(Math.tan(Math.toRadians(actualFov / 2.0)) / Math.tan(Math.toRadians(baseFov / 2.0)));
+    /** {@code render}'s {@code l} (its sixth float local, LVT slot 15). */
+    @ModifyVariable(
+        method = "render(Lnet/minecraft/entity/projectile/FishingBobberEntity;FFLnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At("STORE"),
+        ordinal = 5,
+        require = 0
+    )
+    private float fishingrodfix$lineY(float y) {
+        return ThirdPersonLineOrigin.lineOffset(1, y);
+    }
 
-        float compFwd   = viewVec.dot(fwd);
-        float compUp    = viewVec.dot(up)    * tanRatio;
-        float compRight = viewVec.dot(right) * tanRatio * (REFERENCE_ASPECT_RATIO / realAR);
+    /** {@code render}'s {@code m} (its seventh float local, LVT slot 16). */
+    @ModifyVariable(
+        method = "render(Lnet/minecraft/entity/projectile/FishingBobberEntity;FFLnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At("STORE"),
+        ordinal = 6,
+        require = 0
+    )
+    private float fishingrodfix$lineZ(float z) {
+        return ThirdPersonLineOrigin.lineOffset(2, z);
+    }
 
-        Vector3f corrected = new Vector3f(fwd).mul(compFwd)
-                .add(new Vector3f(up).mul(compUp))
-                .add(new Vector3f(right).mul(compRight));
-
-        // --- 2. Item-sway lag, mirrored from vanilla's hand rotation (no tuned factor) ---
-        float ax = (player.getPitch(tickProgress) - MathHelper.lerp(tickProgress, player.lastRenderPitch, player.renderPitch)) * VANILLA_ITEM_SWAY_DEGREES;
-        float ay = (player.getYaw(tickProgress)   - MathHelper.lerp(tickProgress, player.lastRenderYaw,   player.renderYaw))   * VANILLA_ITEM_SWAY_DEGREES;
-        corrected.rotateAxis((float) Math.toRadians(ay), up.x, up.y, up.z)
-                 .rotateAxis((float) Math.toRadians(ax), right.x, right.y, right.z);
-
-        // --- 3. Crouch sag-jump fix (0 when settled, non-zero only during the pose change) ---
-        float crouchOffset = player.isOnGround()
-                ? (float)(camera.getPos().y - eyePos.y)
-                : 0f;
-
-        return new Vec3d(
-                eyePos.x + corrected.x,
-                eyePos.y + corrected.y + crouchOffset,
-                eyePos.z + corrected.z);
+    /**
+     * Skips the catenary of a hidden line; the bobber is still drawn. 1.21.1 emits the line straight
+     * into the {@code line_strip} buffer, so the condition sits on the one {@code renderFishingLine}
+     * call site, which {@code render}'s loop reaches once per segment (17 times) for a hook whose line
+     * is drawn at all. Optional, unlike on the deferred versions where the same condition sits on
+     * a generic {@code submitCustom}: a fishing-specific private method is the natural target for a
+     * mod that redraws the line, and hiding it is not what the fix is for — losing this leaves the
+     * line visible, i.e. vanilla, where a required injector would mean a startup crash for everyone
+     * running both mods. A stale descriptor here is caught by the smoke test's injection counting.
+     */
+    @WrapWithCondition(
+        method = "render(Lnet/minecraft/entity/projectile/FishingBobberEntity;FFLnet/minecraft/client/util/math/MatrixStack;"
+                + "Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/entity/FishingBobberEntityRenderer;renderFishingLine(FFF"
+                + "Lnet/minecraft/client/render/VertexConsumer;Lnet/minecraft/client/util/math/MatrixStack$Entry;FF)V"),
+        require = 0
+    )
+    private boolean fishingrodfix$skipHiddenLine(float x, float y, float z, VertexConsumer buffer, MatrixStack.Entry matrices,
+                                                 float segmentStart, float segmentEnd) {
+        return !FishingLineVisibility.lineHidden();
     }
 }

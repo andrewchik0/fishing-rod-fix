@@ -12,7 +12,7 @@ jobs:
       matrix:
         # Use these Java versions
         java: [
-          21,    # Current Java LTS
+          21,    # Java LTS that Minecraft 1.21-1.21.1 runs on
         ]
     runs-on: ubuntu-22.04
     steps:
