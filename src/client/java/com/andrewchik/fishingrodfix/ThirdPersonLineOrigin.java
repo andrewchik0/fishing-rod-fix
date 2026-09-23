@@ -214,6 +214,11 @@ public final class ThirdPersonLineOrigin {
      */
     public static void onFirstPersonVanilla(PlayerEntity owner) {
         MinecraftClient mc = MinecraftClient.getInstance();
+        // As every other entry: once this world's correction has failed, nothing here runs (and the
+        // failure isn't logged again every frame).
+        if (disabledIn.get() == mc.world) {
+            return;
+        }
         try {
             Camera camera = mc.getEntityRenderDispatcher().camera;
             firstPersonVanilla = camera != null && camera.getFocusedEntity() == owner;
@@ -228,19 +233,27 @@ public final class ThirdPersonLineOrigin {
      */
     public static void onHookExtracted(FishingBobberEntityState state, @Nullable PlayerEntity owner, boolean onFirstPersonRod, boolean hidden,
                                        float partialTicks) {
-        HookState hookState = (HookState) state;
-        if (onFirstPersonRod || hidden || !(owner instanceof AbstractClientPlayerEntity player)
-                || disabledIn.get() == MinecraftClient.getInstance().world) {
-            hookState.fishingrodfix$setBodyRodOwner(null, 0f, false);
-            return;
+        MinecraftClient mc = MinecraftClient.getInstance();
+        try {
+            HookState hookState = (HookState) state;
+            if (onFirstPersonRod || hidden || !(owner instanceof AbstractClientPlayerEntity player)
+                    || disabledIn.get() == mc.world) {
+                hookState.fishingrodfix$setBodyRodOwner(null, 0f, false);
+                return;
+            }
+            // The owner's partial tick, as WorldRenderer.fillEntityRenderStates extracts it: players never
+            // skip a tick (TickManager.shouldSkipTick), so it is the hook's unless the tick rate is frozen.
+            float ownerPartialTicks = player.getEntityWorld().getTickManager().shouldTick()
+                    ? partialTicks
+                    : mc.getRenderTickCounter().getTickProgress(true);
+            hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks, firstPersonVanilla);
+            bodyHookFrame = HandPass.frame();
+        } catch (RuntimeException | LinkageError e) {
+            // As every other entry from vanilla: vanilla's line until the next world. This one sits on
+            // a require = 1 inject, so a throw would crash instead. A line left with an owner here
+            // drops it unused at its submission, which runs before anything reads it.
+            disable(mc, e);
         }
-        // The owner's partial tick, as WorldRenderer.fillEntityRenderStates extracts it: players never
-        // skip a tick (TickManager.shouldSkipTick), so it is the hook's unless the tick rate is frozen.
-        float ownerPartialTicks = player.getEntityWorld().getTickManager().shouldTick()
-                ? partialTicks
-                : MinecraftClient.getInstance().getRenderTickCounter().getTickProgress(true);
-        hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks, firstPersonVanilla);
-        bodyHookFrame = HandPass.frame();
     }
 
     /**
@@ -391,8 +404,15 @@ public final class ThirdPersonLineOrigin {
                 || owner.getPose() != rod.offsetPose || owner.hasVehicle() != rod.offsetRiding) {
             return null;
         }
-        // The body turns about its position (LivingEntityRenderer.setupTransforms: 180 - yaw).
-        Vector3f offset = scratch.set(rod.offset).rotateY(MathHelper.RADIANS_PER_DEGREE * (rod.offsetYaw - bodyYaw(owner, partialTicks)));
+        // The body turns about its position (LivingEntityRenderer.setupTransforms: 180 - yaw), except
+        // asleep, where the same method turns it by the bed's direction instead (only falling back to
+        // the body yaw if the bed is gone) and the body yaw doesn't move it: a reading taken asleep is
+        // in bed space, and rotating it by a yaw delta would be meaningless. The rule follows the pose
+        // the reading was taken in, which the gate above has already matched against the owner's now.
+        Vector3f offset = scratch.set(rod.offset);
+        if (rod.offsetPose != EntityPose.SLEEPING) {
+            offset.rotateY(MathHelper.RADIANS_PER_DEGREE * (rod.offsetYaw - bodyYaw(owner, partialTicks)));
+        }
         return offset.set(
                 (float) (MathHelper.lerp(partialTicks, owner.lastRenderX, owner.getX()) - state.x + offset.x),
                 (float) (MathHelper.lerp(partialTicks, owner.lastRenderY, owner.getY()) - state.y + offset.y),
