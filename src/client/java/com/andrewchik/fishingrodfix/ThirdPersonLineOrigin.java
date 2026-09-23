@@ -212,6 +212,11 @@ public final class ThirdPersonLineOrigin {
      */
     public static void onFirstPersonVanilla(Player owner) {
         Minecraft mc = Minecraft.getInstance();
+        // As every other entry: once this world's correction has failed, nothing here runs (and the
+        // failure isn't logged again every frame).
+        if (disabledIn.get() == mc.level) {
+            return;
+        }
         try {
             Camera camera = mc.getEntityRenderDispatcher().camera;
             firstPersonVanilla = camera != null && camera.entity() == owner;
@@ -226,18 +231,26 @@ public final class ThirdPersonLineOrigin {
      */
     public static void onHookExtracted(FishingHookRenderState state, @Nullable Player owner, boolean onFirstPersonRod, boolean hidden,
                                        float partialTicks) {
-        HookState hookState = (HookState) state;
-        if (onFirstPersonRod || hidden || !(owner instanceof AbstractClientPlayer player) || disabledIn.get() == Minecraft.getInstance().level) {
-            hookState.fishingrodfix$setBodyRodOwner(null, 0f, false);
-            return;
+        Minecraft mc = Minecraft.getInstance();
+        try {
+            HookState hookState = (HookState) state;
+            if (onFirstPersonRod || hidden || !(owner instanceof AbstractClientPlayer player) || disabledIn.get() == mc.level) {
+                hookState.fishingrodfix$setBodyRodOwner(null, 0f, false);
+                return;
+            }
+            // The owner's partial tick, as LevelRenderer extracts it: players never freeze, so it is
+            // the hook's unless the tick rate is frozen.
+            float ownerPartialTicks = player.level().tickRateManager().runsNormally()
+                    ? partialTicks
+                    : mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+            hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks, firstPersonVanilla);
+            bodyHookFrame = HandPass.frame();
+        } catch (RuntimeException | LinkageError e) {
+            // As every other entry from vanilla: vanilla's line until the next world. This one sits on
+            // a require = 1 inject, so a throw would crash instead. A line left with an owner here
+            // drops it unused at its submission, which runs before anything reads it.
+            disable(mc, e);
         }
-        // The owner's partial tick, as LevelRenderer extracts it: players never freeze, so it is the
-        // hook's unless the tick rate is frozen.
-        float ownerPartialTicks = player.level().tickRateManager().runsNormally()
-                ? partialTicks
-                : Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(true);
-        hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks, firstPersonVanilla);
-        bodyHookFrame = HandPass.frame();
     }
 
     /**
@@ -388,8 +401,15 @@ public final class ThirdPersonLineOrigin {
                 || owner.getPose() != rod.offsetPose || owner.isPassenger() != rod.offsetRiding) {
             return null;
         }
-        // The body turns about its position (LivingEntityRenderer.setupRotations: 180 - yaw).
-        Vector3f offset = scratch.set(rod.offset).rotateY(Mth.DEG_TO_RAD * (rod.offsetYaw - bodyYaw(owner, partialTicks)));
+        // The body turns about its position (LivingEntityRenderer.setupRotations: 180 - yaw), except
+        // asleep, where the same method turns it by the bed's direction instead (only falling back to
+        // the body yaw if the bed is gone) and the body yaw doesn't move it: a reading taken asleep is
+        // in bed space, and rotating it by a yaw delta would be meaningless. The rule follows the pose
+        // the reading was taken in, which the gate above has already matched against the owner's now.
+        Vector3f offset = scratch.set(rod.offset);
+        if (rod.offsetPose != Pose.SLEEPING) {
+            offset.rotateY(Mth.DEG_TO_RAD * (rod.offsetYaw - bodyYaw(owner, partialTicks)));
+        }
         return offset.set(
                 (float) (Mth.lerp(partialTicks, owner.xOld, owner.getX()) - state.x + offset.x),
                 (float) (Mth.lerp(partialTicks, owner.yOld, owner.getY()) - state.y + offset.y),
