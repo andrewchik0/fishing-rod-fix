@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A client-side Fabric mod for Minecraft that fixes vanilla bugs where the fishing line starts in the wrong place. In first person the line origin is placed on the rod the hand pass actually draws, at vanilla's own attachment point by the tip: across aspect ratios, world and hand FOV, the rod's equip dip, swing and sway, view bob, hurt tilt and nausea warp, the camera's smoothed eye height, and resource packs that redraw the rod. On a player's body (third person, other players, sleeping in any view) it is placed on the tip of the rod the body is drawn holding, in whatever pose the model is in.
 
-Each Minecraft version lives on its own branch and the code differs per version family (see Versioning). This branch targets **MC 1.21.11** (obfuscated: yarn mappings, remapped by Loom; the jar declares `~1.21.11`, i.e. `>=1.21.11 <1.22`, which is 1.21.11 alone since no later 1.21.x exists; the fix reads APIs that 1.21.11 added, such as `ItemStack.getSwingAnimation`, which came with its spears).
+Each Minecraft version lives on its own branch and the code differs per version family (see Versioning). This branch targets **MC 1.21.11** (obfuscated: yarn mappings, remapped by Loom; the jar declares `>=1.21.11 <=1.21.11`, closed on purpose: `~1.21.11` means `>=1.21.11 <1.22`, which would also admit the next release and its snapshots (Fabric normalises those as pre-releases of the release they lead to), and the mod's required injectors would crash a client there rather than the loader refusing the mod; the fix reads APIs that 1.21.11 added, such as `ItemStack.getSwingAnimation`, which came with its spears).
 
 ## Build Commands
 
