@@ -33,8 +33,13 @@ dependencies {
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-	// No Fabric API: the mod doesn't use it (MixinExtras ships with Fabric Loader), and leaving it
-	// off the classpath keeps compile and runClient honest about running without it.
+	// MixinExtras is bundled (Jar-in-Jar) rather than taken from the loader's own copy, so the mod
+	// keeps working on loaders older than 0.15.0 (the first that ships one). See gradle.properties
+	// for the pinned version and CLAUDE.md for the loader floor it implies.
+	include "io.github.llamalad7:mixinextras-fabric:${project.mixinextras_version}"
+
+	// No Fabric API: the mod doesn't use it, and leaving it off the classpath keeps compile and
+	// runClient honest about running without it.
 }
 
 processResources {

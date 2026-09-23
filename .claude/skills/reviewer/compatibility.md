@@ -37,7 +37,7 @@ Players run this mod next to dozens of others. The rules, in order:
 - **Read, don't re-derive.** Reading the value vanilla already computed (the extracted projection,
   camera, hand state) follows other mods' changes automatically; recomputing it from options or
   player fields silently ignores them. A re-derived value is a compatibility smell.
-- **No dependencies.** No Fabric API or libraries; MixinExtras comes with the loader floor.
+- **No dependencies.** No Fabric API. MixinExtras is the one library, and where it comes from is per branch: the `1.20` branch **bundles** it (Jar-in-Jar, `mixinextras-fabric` 0.3.5, mod id `mixinextras`), every other branch takes the loader's own copy because its floor already guarantees a new enough one. On a bundling branch, check that the nested mod's own `depends.fabricloader` is not above the declared floor, and that the pin can only ever win over an *older* copy — never downgrade another mod's MixinExtras.
 
 ## B. What other mods can change, and what the fix reads
 
@@ -172,7 +172,7 @@ pipeline, so the Iris row applies to all of them. Pack-specific:
 
 | Loader | Status |
 |---|---|
-| Fabric Loader | the declared floor must ship every Mixin / MixinExtras feature used (`correctness.md`) Loader 0.15.10 (the declared floor on 1.21.5 and 1.21.6–1.21.8) bundles MixinExtras **0.3.5**, which already ships `injector/v2/WrapWithCondition` and `@Local(argsOnly)` — the floor covers everything the mod uses (checked 2026-09-23). |
+| Fabric Loader | the declared floor must cover every Mixin / MixinExtras feature used, and must not be higher than that (`correctness.md`, and the port skill's "Loader floor" row for the derivation). On 1.21.x and 26.x the mod takes MixinExtras from the loader, and the floor covers it: 0.15.10 bundles **0.3.5**, which has `injector/v2/WrapWithCondition` and `@Local(argsOnly)`. On **1.20** the floor is `>=0.14.25` and MixinExtras is bundled instead, so the loader may be older than any that ships one; check the nested copy is selected there and the loader's newer copy from 0.16.0 on (checked 2026-09-24). |
 | Quilt | U: check nothing loader-internal is used beyond `FabricLoader` |
 | Sinytra Connector (Fabric mods on NeoForge) | U |
 
