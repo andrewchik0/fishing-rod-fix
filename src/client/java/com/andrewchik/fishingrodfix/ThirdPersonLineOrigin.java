@@ -56,7 +56,11 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * starts where the rod was last drawn, relative to the body's position and turned with its yaw, while
  * the owner still holds a rod in that arm and is in the same pose (and riding or not) as then. A pose
  * changed since then shows once the rod is drawn again; otherwise, and for an owner whose rod was
- * never seen drawn, the line keeps vanilla's value.
+ * never seen drawn, the line keeps vanilla's value. Being relative to the body's position, that spot
+ * also carries the offset the reading frame drew the body at ({@code AvatarRenderer.getRenderOffset}):
+ * the crouch shift, which the pose gate keeps in step, and, only for a passenger of an
+ * experimental-movement minecart, that frame's cart lerp correction, a fraction of a block until the
+ * rod is drawn again.
  *
  * <p>The local player's line on {@code getPlayerHandPos}' first-person branch that
  * {@link FishingLineOrigin} left at vanilla's value (see its Javadoc) while the camera is on that
@@ -230,12 +234,14 @@ public final class ThirdPersonLineOrigin {
     }
 
     /**
-     * Called where {@code ItemInHandLayer.submitArmWithItem} submits a held item, for every armed
-     * entity: small, so it inlines there; only a rod in an avatar's hand in a frame with a body-held
-     * line goes on.
+     * Called where {@code ItemInHandLayer.submitArmWithItem} submits a held item, once per non-empty
+     * held item of an armed entity: small, so it inlines there; only a rod in an avatar's hand in a
+     * frame with a body-held line goes on.
      */
     public static void onItemSubmitted(ArmedEntityRenderState state, ItemStack stack, HumanoidArm arm, PoseStack poseStack, SubmitNodeCollector collector) {
-        if (bodyHookFrame == HandPass.frame() && state instanceof AvatarRenderState avatar && isRod(stack)) {
+        // stack != null: vanilla always passes one, but isRod reads it and this gate runs outside the
+        // exception boundary, so a mod that passed null would throw into the item layer.
+        if (bodyHookFrame == HandPass.frame() && state instanceof AvatarRenderState avatar && stack != null && isRod(stack)) {
             readDrawnRod(avatar, arm, poseStack, collector);
         }
     }
@@ -369,7 +375,10 @@ public final class ThirdPersonLineOrigin {
                 (float) (Mth.lerp(partialTicks, owner.zOld, owner.getZ()) - state.z + offset.z));
     }
 
-    /** Remembers the drawn tip, at world position {@code (x, y, z)}, relative to the body it was drawn with. */
+    /**
+     * Remembers the drawn tip, at world position {@code (x, y, z)}, relative to the body it was drawn
+     * with: its position, without the offset the renderer drew it at (see the class Javadoc).
+     */
     private static void remember(BodyRod rod, double x, double y, double z) {
         rod.offset.set((float) (x - rod.bodyX), (float) (y - rod.bodyY), (float) (z - rod.bodyZ));
         rod.offsetYaw = rod.bodyYaw;

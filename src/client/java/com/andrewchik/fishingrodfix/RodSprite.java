@@ -34,9 +34,17 @@ final class RodSprite {
     static final Vector2fc VANILLA_TIP_UV = new Vector2f(15f / 16f, 1f / 16f);
 
     // The one tuned constant: a plausibility gate, never a scale (it only decides whether a
-    // measurement is used). 2x the largest shift observed (Faithful 32x: (0.25, 0.75)/16); a larger
-    // shift means findTip misread the texture (mirrored rod, decorations, a 3D model's UV sheet).
+    // measurement is used). 2x the largest shift component observed (Faithful 32x: (0.25, 0.75)/16);
+    // a larger shift means findTip misread the texture (mirrored rod, decorations, a 3D model's UV
+    // sheet).
     private static final float MAX_TIP_SHIFT = 1.5f / 16f;
+
+    // A cost cap, not part of the measurement: measuring runs once per resource reload, but in a
+    // gameplay frame right after it, so it gets a millisecond at most. findTip reads at most about a
+    // twentieth of a frame's pixels, in each frame of an animation, which leaves every plausible pack
+    // -- any static sprite up to 2896x2896 (a 181x pack), 512x512 over 32 animation frames -- well
+    // inside that. A sheet past this isn't a rod texture that can be measured in time: vanilla's tip.
+    private static final long MAX_MEASURED_SAMPLES = 512L * 512L * 32L;
 
     // RenderPipelines' item pipelines (ITEM_CUTOUT, ITEM_TRANSLUCENT, OIT_ITEM_SNIPPET) set
     // ALPHA_CUTOUT = ALPHA_CUTOUT_THRESHOLD_DEFAULT (0.1): core/item discards texture alpha below
@@ -71,7 +79,16 @@ final class RodSprite {
         }
         Vector2f tip;
         try {
-            tip = findTip(sprite.width(), sprite.height(), visiblePixels(sprite));
+            // Frames are frame-sized tiles laid out row-major (SpriteContents.AnimatedTexture.getFrameX/Y),
+            // offset only for animated sprites, as in SpriteContents.isTransparent; a static sprite
+            // shows tile 0 and its getUniqueFrames() is a dummy [1].
+            IntList frames = sprite.isAnimated() ? sprite.getUniqueFrames() : IntList.of(0);
+            if ((long) sprite.width() * sprite.height() * frames.size() > MAX_MEASURED_SAMPLES) {
+                LOGGER.info("Fishing rod sprite {} is too large to measure ({}x{}, {} frames), assuming the vanilla rod",
+                        sprite.name(), sprite.width(), sprite.height(), frames.size());
+                return VANILLA_TIP_UV;
+            }
+            tip = findTip(sprite.width(), sprite.height(), visiblePixels(sprite, frames));
         } catch (RuntimeException | LinkageError e) {
             LOGGER.error("Could not read the {} sprite, assuming the vanilla rod until the next resource reload", sprite.name(), e);
             return VANILLA_TIP_UV;
@@ -91,17 +108,13 @@ final class RodSprite {
     }
 
     /**
-     * Pixels of the sprite that are visible in game: alpha at or above the item cutout in any
-     * animation frame (ItemModelGenerator's outline also unions the frames).
+     * Pixels of the sprite that are visible in game: alpha at or above the item cutout in any of its
+     * {@code frames} (ItemModelGenerator's outline also unions the frames).
      */
-    private static PixelMask visiblePixels(SpriteContents sprite) {
+    private static PixelMask visiblePixels(SpriteContents sprite, IntList frames) {
         NativeImage image = ((SpriteContentsAccessor) sprite).fishingrodfix$getOriginalImage();
         int width = sprite.width();
         int height = sprite.height();
-        // Frames are frame-sized tiles laid out row-major (SpriteContents.AnimatedTexture.getFrameX/Y),
-        // offset only for animated sprites, as in SpriteContents.isTransparent; a static sprite
-        // shows tile 0 and its getUniqueFrames() is a dummy [1].
-        IntList frames = sprite.isAnimated() ? sprite.getUniqueFrames() : IntList.of(0);
         int framesPerRow = image.getWidth() / width;
         float minAlpha = ITEM_ALPHA_CUTOUT * 255f;
         return (x, y) -> {
@@ -119,12 +132,23 @@ final class RodSprite {
     /**
      * The far end of the rod: the visible texel corner that lies furthest along the rod's
      * handle-to-tip direction (towards the texture's top-right). Corners tied for the extreme
-     * (a chamfered tip) are averaged. Returns texture {@code (u, v)} in {@code [0, 1]}, v down.
+     * (a chamfered tip) are averaged. Returns texture {@code (u, v)} in {@code [0, 1]}, v down, or
+     * null when no corner reaches far enough for the measurement to be used at all.
      */
     private static @Nullable Vector2f findTip(int width, int height, PixelMask visible) {
         // A pixel's top-right corner is its extreme point along (+u, -v). Score u - v, scaled by
         // width * height so the comparison stays exact in integers.
-        long best = Long.MIN_VALUE;
+        //
+        // The search starts at the plausibility gate's own floor rather than at nothing. The score is
+        // affine in the corner, so the averaged tip scores exactly what its tied corners score, and
+        // measureTip only uses a tip within MAX_TIP_SHIFT of vanilla's: no corner scoring below
+        // (VANILLA_U - MAX_TIP_SHIFT) - (VANILLA_V + MAX_TIP_SHIFT) can be part of one. Skipping those
+        // leaves every measurement that is used exactly as it was, turns one that isn't into no
+        // measurement (vanilla's tip either way) and bounds the scan to the sprite's top-right corner,
+        // about a twentieth of its pixels, however the pack draws the rod.
+        long floor = (long) Math.ceil(
+                (double) (VANILLA_TIP_UV.x() - VANILLA_TIP_UV.y() - 2f * MAX_TIP_SHIFT) * width * height);
+        long best = floor - 1;
         long sumX = 0;
         long sumY = 0;
         int count = 0;
@@ -133,8 +157,10 @@ final class RodSprite {
             if ((long) width * height - (long) y * width < best) {
                 break;
             }
+            // Nor can one left of minX: the first column whose corner can still reach it.
+            int minX = (int) Math.max(0L, ((best + (long) y * width + height - 1) / height) - 1);
             // Scan from the right: the row's rightmost visible pixel is its extreme.
-            for (int x = width - 1; x >= 0; x--) {
+            for (int x = width - 1; x >= minX; x--) {
                 if (!visible.isVisible(x, y)) {
                     continue;
                 }
@@ -144,7 +170,8 @@ final class RodSprite {
                     sumX = x + 1;
                     sumY = y;
                     count = 1;
-                } else if (score == best) {
+                } else if (score == best && count > 0) {
+                    // count > 0: the floor best starts at is a threshold, not a corner to tie with.
                     sumX += x + 1;
                     sumY += y;
                     count++;
