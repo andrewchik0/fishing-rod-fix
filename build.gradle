@@ -33,8 +33,12 @@ dependencies {
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-	// No Fabric API: the mod doesn't use it (MixinExtras ships with Fabric Loader), and leaving it
-	// off the classpath keeps compile and runClient honest about running without it.
+	// No Fabric API: the mod doesn't use it, and leaving it off the classpath keeps compile and
+	// runClient honest about running without it. MixinExtras, the mod's only mixin extra, comes
+	// from the loader's own bundled copy and is deliberately NOT Jar-in-Jar'd here:
+	// depends.fabricloader is already >=0.15.10 for the JAVA_21 compatibility level, and every
+	// loader from 0.15.7 on bundles a MixinExtras with injector.v2.WrapWithCondition, so an
+	// include(...) would lower nothing. (The 1.20 branch, at JAVA_17, does bundle one.)
 }
 
 processResources {
