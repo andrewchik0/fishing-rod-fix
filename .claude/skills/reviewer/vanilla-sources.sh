@@ -42,9 +42,10 @@ if [ ! -f "$out/.complete" ]; then
         exit 1
     fi
     java=${JAVA_HOME:+$JAVA_HOME/bin/}java
-    # Cap the heap: Vineflower's default is a quarter of physical RAM, which a machine whose commit
-    # charge is already high cannot reserve (the JVM dies with "insufficient memory ... G1 virtual
-    # space" and drops an hs_err file in the repo). 2G is comfortably above what these two jars need.
+    # Cap the heap: without -Xmx the JVM picks a quarter of physical RAM (HotSpot's ergonomic
+    # default, not a Vineflower setting), which a machine whose commit charge is already high cannot
+    # reserve (the JVM dies with "insufficient memory ... G1 virtual space" and drops an hs_err file
+    # in the repo). 2G is comfortably above what these two jars need.
     xmx=${FRF_DECOMPILE_XMX:-2G}
     rm -rf "$out"
     mkdir -p "$out"
