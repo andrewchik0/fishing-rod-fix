@@ -90,7 +90,7 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * such pose that isn't detected - see CLAUDE.md's Known limitations); when no
  * rod has been drawn for the current hook; when the owner isn't the local player or the camera isn't
  * on it; if the result is degenerate (a FOV from another mod out of range); and after an exception,
- * until the next world or dimension. The world projection itself isn't read (1.21.5 keeps no copy of
+ * until the next world or dimension. The world projection itself isn't read (1.21.4 keeps no copy of
  * it without the bob and warp), so a mod that changes it rather than {@code getFov} (an orthographic
  * camera, a lens) isn't followed.
  * Whether the line is drawn at all is {@link FishingLineVisibility}'s call.
@@ -101,13 +101,18 @@ public final class FishingLineOrigin {
     private static final float ITEM_SWAY_SCALE = 0.1f;
 
     // GameRenderer.renderWorld's nausea/portal warp, applied to the world projection after the bob:
-    // i = max(portal, nausea) * distortionEffectScale^2, skew = (5 / (i^2 + 5) - i * 0.04)^2, and the
+    // i = nauseaIntensity * distortionEffectScale^2, skew = (5 / (i^2 + 5) - i * 0.04)^2, and the
     // projection is stretched by 1/skew along x turned by the spin angle
-    // a = nauseaEffectTime + tickProgress * nauseaEffectSpeed (degrees) about the fixed
+    // a = (ticks + tickDelta) * (nausea effect held ? 7 : 20) degrees about the fixed
     // (0, sqrt(2)/2, sqrt(2)/2) axis: rotate(a, axis) * scale(1/skew, 1, 1) * rotate(-a, axis).
-    private static final float     WARP_SKEW_BASE  = 5f;
-    private static final float     WARP_SKEW_SLOPE = 0.04f;
-    private static final Vector3fc WARP_AXIS       = new Vector3f(0f, MathHelper.SQUARE_ROOT_OF_TWO / 2f, MathHelper.SQUARE_ROOT_OF_TWO / 2f);
+    // ClientPlayerEntity.nauseaIntensity covers the portal and the nausea effect alike here, and the
+    // spin speed is picked from the live effect; 1.21.5 split the two into a nauseaEffectTime /
+    // nauseaEffectSpeed pair on GameRenderer and maxed the intensity with getEffectFadeFactor(NAUSEA).
+    private static final float     WARP_SKEW_BASE       = 5f;
+    private static final float     WARP_SKEW_SLOPE      = 0.04f;
+    private static final float     WARP_NAUSEA_SPIN_DEG = 7f;
+    private static final float     WARP_PORTAL_SPIN_DEG = 20f;
+    private static final Vector3fc WARP_AXIS            = new Vector3f(0f, MathHelper.SQUARE_ROOT_OF_TWO / 2f, MathHelper.SQUARE_ROOT_OF_TWO / 2f);
 
     // Clearviews (2.x, mod id "clearviews") removes the warp from renderWorld while its
     // "Disable Nausea" option is on. Assumed on (its default); with it off the line keeps vanilla's
@@ -140,7 +145,7 @@ public final class FishingLineOrigin {
 
     // The FOVs vanilla projects with, from its own getFov calls (GameRendererMixin), with the
     // HandPass frame they were taken in: the world's from renderWorld's only one, the hand's from
-    // renderHand's only one (1.21.5 computes it there; 1.21.6 moved it up into renderWorld). Each getFov call probes the camera's surroundings for fluid
+    // renderHand's only one (1.21.4 computes it there; 1.21.6 moved it up into renderWorld). Each getFov call probes the camera's surroundings for fluid
     // (Camera.getSubmersionType: about a dozen world lookups and ~1 KB of garbage), so compute reuses
     // them; where it can't (entering water or lava, dying, a zoom changing, or these optional hooks
     // blocked) it asks getFov twice instead, which makes those the mod's most expensive frames, one
@@ -179,7 +184,7 @@ public final class FishingLineOrigin {
      * Called with the world FOV {@code renderWorld} got from {@code getFov}, before the entities are
      * extracted, at the tick progress it asked with.
      */
-    public static void onWorldFov(float fov, float tickProgress) {
+    public static void onWorldFov(float fov, float tickDelta) {
         worldFovFrame = HandPass.frame();
         capturedWorldFov = fov;
         // NaN never matches: no reuse of the hand FOV unless the factor is known.
@@ -193,7 +198,7 @@ public final class FishingLineOrigin {
             MinecraftClient mc = MinecraftClient.getInstance();
             GameRendererAccessor fovState = (GameRendererAccessor) mc.gameRenderer;
             float base = mc.options.getFov().getValue().intValue()
-                    * MathHelper.lerp(tickProgress, fovState.fishingrodfix$getLastFovMultiplier(), fovState.fishingrodfix$getFovMultiplier());
+                    * MathHelper.lerp(tickDelta, fovState.fishingrodfix$getLastFovMultiplier(), fovState.fishingrodfix$getFovMultiplier());
             capturedSharedFactor = fov / base;
         } catch (RuntimeException | LinkageError e) {
             fovCaptureFailed = true;
@@ -281,9 +286,9 @@ public final class FishingLineOrigin {
         boolean mainHand = hand == Hand.MAIN_HAND;
         Arm arm = mainHand ? player.getMainArm() : player.getMainArm().getOpposite();
         // renderWorld hands renderHand, and so the hand pass, the frame's tick progress
-        // (RenderTickCounter.getTickProgress(true)); panorama capture, the only other caller, is
+        // (RenderTickCounter.getTickDelta(true)); panorama capture, the only other caller, is
         // excluded in correct.
-        float tickProgress = mc.getRenderTickCounter().getTickProgress(true);
+        float tickDelta = mc.getRenderTickCounter().getTickDelta(true);
         float swing = 0f;
         // Only a drawn rod's pose is modelled (the remembered hand still gets its equip dip): with no
         // rod drawn, falling back would jump to vanilla's other hand.
@@ -295,31 +300,31 @@ public final class FishingLineOrigin {
                 return null;
             }
             // renderItem swings only the attacking hand (preferredHand, the main hand until the first
-            // swing); the other hand gets swing progress 0. On 1.21.5 every idle item swings the
+            // swing); the other hand gets swing progress 0. On 1.21.4 every idle item swings the
             // same way (swingArm; no swing animations yet).
             Hand attackHand = player.preferredHand != null ? player.preferredHand : Hand.MAIN_HAND;
             if (attackHand == hand) {
-                swing = player.getHandSwingProgress(tickProgress);
+                swing = player.getHandSwingProgress(tickDelta);
             }
         }
-        // renderItem's equip dip (1.21.5 has no per-item swap animation scale).
+        // renderItem's equip dip (1.21.4 has no per-item swap animation scale).
         float inverseArmHeight = 1f - (mainHand
-                ? MathHelper.lerp(tickProgress, hands.fishingrodfix$getLastEquipProgressMainHand(), hands.fishingrodfix$getEquipProgressMainHand())
-                : MathHelper.lerp(tickProgress, hands.fishingrodfix$getLastEquipProgressOffHand(), hands.fishingrodfix$getEquipProgressOffHand()));
+                ? MathHelper.lerp(tickDelta, hands.fishingrodfix$getPrevEquipProgressMainHand(), hands.fishingrodfix$getEquipProgressMainHand())
+                : MathHelper.lerp(tickDelta, hands.fishingrodfix$getPrevEquipProgressOffHand(), hands.fishingrodfix$getEquipProgressOffHand()));
         Vector3f anchor = FirstPersonRod.lineAnchor(mc, arm, swing, inverseArmHeight);
 
         // --- 2. Item sway: the pose stack rotates about X then Y, so the point turns about Y first ---
-        float renderPitch = MathHelper.lerp(tickProgress, player.lastRenderPitch, player.renderPitch);
-        float renderYaw = MathHelper.lerp(tickProgress, player.lastRenderYaw, player.renderYaw);
-        anchor.rotateY(MathHelper.RADIANS_PER_DEGREE * (player.getYaw(tickProgress) - renderYaw) * ITEM_SWAY_SCALE)
-              .rotateX(MathHelper.RADIANS_PER_DEGREE * (player.getPitch(tickProgress) - renderPitch) * ITEM_SWAY_SCALE);
+        float renderPitch = MathHelper.lerp(tickDelta, player.lastRenderPitch, player.renderPitch);
+        float renderYaw = MathHelper.lerp(tickDelta, player.lastRenderYaw, player.renderYaw);
+        anchor.rotateY(MathHelper.RADIANS_PER_DEGREE * (player.getYaw(tickDelta) - renderYaw) * ITEM_SWAY_SCALE)
+              .rotateX(MathHelper.RADIANS_PER_DEGREE * (player.getPitch(tickDelta) - renderPitch) * ITEM_SWAY_SCALE);
 
         // --- 3. View bob and hurt tilt, applied by both passes ---
         GameRendererInvoker gameRenderer = (GameRendererInvoker) mc.gameRenderer;
         MatrixStack bobStack = new MatrixStack();
-        gameRenderer.fishingrodfix$tiltViewWhenHurt(bobStack, tickProgress);
+        gameRenderer.fishingrodfix$tiltViewWhenHurt(bobStack, tickDelta);
         if (mc.options.getBobView().getValue()) {
-            gameRenderer.fishingrodfix$bobView(bobStack, tickProgress);
+            gameRenderer.fishingrodfix$bobView(bobStack, tickDelta);
         }
         Matrix4fc bob = bobStack.peek().getPositionMatrix();
         Vector3f drawn = bob.transformPosition(anchor, new Vector3f());
@@ -327,8 +332,8 @@ public final class FishingLineOrigin {
         // --- 4. Same pixel: world tangents = drawn tangents * FOV ratio, at the drawn point's
         // distance from the eye, with the world pass's bob and warp undone (point is rewritten in
         // place: world view target -> view space -> world offset) ---
-        // renderWorld projects the world at getFov(camera, tickProgress, true), and renderHand - which
-        // it calls at its end - projects the hand at getFov(camera, tickProgress, false), both at the
+        // renderWorld projects the world at getFov(camera, tickDelta, true), and renderHand - which
+        // it calls at its end - projects the hand at getFov(camera, tickDelta, false), both at the
         // window's aspect. The world FOV is this frame's own. The hand FOV is asked for after the
         // entities, so the one taken last frame is used while the shared factor (see capturedSharedFactor) is the same as then: the
         // hand FOV is 70deg times that factor's vanilla part, and the movement modifier (sprint, speed,
@@ -336,18 +341,18 @@ public final class FishingLineOrigin {
         // a zoom changing) getFov is asked, as it is without the captures (their hooks are optional).
         long frame = HandPass.frame();
         boolean worldFovCaptured = worldFovFrame == frame;
-        float worldFov = worldFovCaptured ? capturedWorldFov : gameRenderer.fishingrodfix$getFov(camera, tickProgress, true);
+        float worldFov = worldFovCaptured ? capturedWorldFov : gameRenderer.fishingrodfix$getFov(camera, tickDelta, true);
         float handFov = worldFovCaptured && handFovFrame == frame - 1
                 && Math.abs(capturedSharedFactor - handFovSharedFactor) <= SHARED_FACTOR_TOLERANCE * Math.abs(handFovSharedFactor)
                 ? capturedHandFov
-                : gameRenderer.fishingrodfix$getFov(camera, tickProgress, false);
+                : gameRenderer.fishingrodfix$getFov(camera, tickDelta, false);
         float worldPerHand = FirstPersonRod.tanHalf(worldFov) / FirstPersonRod.tanHalf(handFov);
         // A world FOV of 180-360deg (only from another mod) turns the tangent negative: mirrored.
         if (!(worldPerHand > 0f) || !Float.isFinite(worldPerHand)) {
             return null;
         }
         Vector3f point = new Vector3f(drawn.x * worldPerHand, drawn.y * worldPerHand, drawn.z).normalize(drawn.length());
-        applyWorldWarp(new Matrix4f(bob), mc, player, tickProgress).invert().transformPosition(point);
+        applyWorldWarp(new Matrix4f(bob), mc, player, tickDelta).invert().transformPosition(point);
 
         // --- 5. Camera anchor: view space (x right, y up, z back) to world by the camera's
         // rotation, as Camera.moveBy does ---
@@ -429,18 +434,17 @@ public final class FishingLineOrigin {
     }
 
     /** Applies GameRenderer.renderWorld's nausea/portal warp to {@code matrix} in place (after the bob). */
-    private static Matrix4f applyWorldWarp(Matrix4f matrix, MinecraftClient mc, ClientPlayerEntity player, float tickProgress) {
-        // renderWorld's own tick progress for it: the frame's (see compute).
+    private static Matrix4f applyWorldWarp(Matrix4f matrix, MinecraftClient mc, ClientPlayerEntity player, float tickDelta) {
+        // renderWorld's own tick delta for it: the frame's (see compute).
         float distortionEffectScale = mc.options.getDistortionEffectScale().getValue().floatValue();
-        float portalIntensity = MathHelper.lerp(tickProgress, player.lastNauseaIntensity, player.nauseaIntensity);
-        float nauseaIntensity = player.getEffectFadeFactor(StatusEffects.NAUSEA, tickProgress);
-        float intensity = Math.max(portalIntensity, nauseaIntensity) * (distortionEffectScale * distortionEffectScale);
+        float intensity = MathHelper.lerp(tickDelta, player.prevNauseaIntensity, player.nauseaIntensity)
+                * (distortionEffectScale * distortionEffectScale);
         if (intensity > 0f && !CLEARVIEWS_LOADED) {
             float skew = WARP_SKEW_BASE / (intensity * intensity + WARP_SKEW_BASE) - intensity * WARP_SKEW_SLOPE;
             skew *= skew;
             GameRendererAccessor spin = (GameRendererAccessor) mc.gameRenderer;
-            float angle = (spin.fishingrodfix$getNauseaEffectTime() + tickProgress * spin.fishingrodfix$getNauseaEffectSpeed())
-                    * MathHelper.RADIANS_PER_DEGREE;
+            float degreesPerTick = player.hasStatusEffect(StatusEffects.NAUSEA) ? WARP_NAUSEA_SPIN_DEG : WARP_PORTAL_SPIN_DEG;
+            float angle = (spin.fishingrodfix$getTicks() + tickDelta) * degreesPerTick * MathHelper.RADIANS_PER_DEGREE;
             matrix.rotate(angle, WARP_AXIS).scale(1f / skew, 1f, 1f).rotate(-angle, WARP_AXIS);
         }
         return matrix;

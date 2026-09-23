@@ -21,7 +21,7 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.LOGGER;
  * rod's tip is on it.
  *
  * <p>Resource packs that redraw the rod (e.g. Faithful 32x) end its tip at another texel. The pack's
- * tip is measured from the block-atlas sprite (1.21.5 keeps item textures there:
+ * tip is measured from the block-atlas sprite (1.21.4 keeps item textures there:
  * {@code JsonUnbakedModel} resolves an item model's textures against
  * {@code SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE}). Covers
  * texture-only packs; packs that also replace the rod's model geometry or its display transforms, or
@@ -36,9 +36,17 @@ final class RodSprite {
     static final Vector2fc VANILLA_TIP_UV = new Vector2f(15f / 16f, 1f / 16f);
 
     // The one tuned constant in the rod geometry: a plausibility gate, never a scale (it only decides whether a
-    // measurement is used). 2x the largest shift observed (Faithful 32x: (0.25, 0.75)/16); a larger
-    // shift means findTip misread the texture (mirrored rod, decorations, a 3D model's UV sheet).
+    // measurement is used). 2x the largest shift component observed (Faithful 32x: (0.25, 0.75)/16);
+    // a larger shift means findTip misread the texture (mirrored rod, decorations, a 3D model's UV
+    // sheet).
     private static final float MAX_TIP_SHIFT = 1.5f / 16f;
+
+    // A cost cap, not part of the measurement: measuring runs once per resource reload, but in a
+    // gameplay frame right after it, so it gets a millisecond at most. findTip reads at most about a
+    // twentieth of a sheet's pixels, in each frame of an animation, which leaves every plausible pack
+    // -- any static sprite up to 2896x2896 (a 181x pack), 512x512 over 32 animation frames -- well
+    // inside that. A sheet past this isn't a rod texture that can be measured in time: vanilla's tip.
+    private static final long MAX_MEASURED_SAMPLES = 512L * 512L * 32L;
 
     // Held items (block atlas) draw with the item_entity_translucent_cull pipeline, whose
     // fragment shader (core/rendertype_item_entity_translucent_cull.fsh) discards alpha below 0.1, as
@@ -77,7 +85,11 @@ final class RodSprite {
         }
         Vector2f tip;
         try {
-            tip = findTip(sprite.getWidth(), sprite.getHeight(), visiblePixels(sprite));
+            PixelMask visible = visiblePixels(sprite);
+            if (visible == null) {
+                return VANILLA_TIP_UV;
+            }
+            tip = findTip(sprite.getWidth(), sprite.getHeight(), visible);
         } catch (RuntimeException | LinkageError e) {
             LOGGER.error("Could not read the {} sprite, assuming the vanilla rod until the next resource reload", sprite.getId(), e);
             return VANILLA_TIP_UV;
@@ -100,13 +112,13 @@ final class RodSprite {
      * Pixels of the sprite that are visible in game: alpha at or above the item cutout in any
      * animation frame (GeneratedItemModel's outline also unions the frames).
      */
-    private static PixelMask visiblePixels(SpriteContents sprite) {
+    private static @Nullable PixelMask visiblePixels(SpriteContents sprite) {
         NativeImage image = ((SpriteContentsAccessor) sprite).fishingrodfix$getImage();
         int width = sprite.getWidth();
         int height = sprite.getHeight();
         // Frames are frame-sized tiles laid out row-major (SpriteContents.Animation.getFrameX/Y),
         // offset only for an animated sprite, as in SpriteContents.isPixelTransparent; without an
-        // animation vanilla draws tile 0 and getDistinctFrameCount() is a dummy [1]. 1.21.5's
+        // animation vanilla draws tile 0 and getDistinctFrameCount() is a dummy [1]. 1.21.4's
         // SpriteContents has no isAnimated(), so getFrameCount() stands in for it (see
         // SpriteContentsAccessor). A multi-tile image alone wouldn't do: a pack whose frame list
         // comes out with one entry or none gets a null animation over a sheet its own .mcmeta sized,
@@ -124,6 +136,14 @@ final class RodSprite {
             }
         }
         int[] visibleFrames = frames;
+        // The cost cap (MAX_MEASURED_SAMPLES): every pixel findTip looks at costs one read per
+        // animation frame, so the sheet's own size is what bounds the measurement.
+        long samples = (long) width * height * visibleFrames.length;
+        if (samples > MAX_MEASURED_SAMPLES) {
+            LOGGER.info("Measuring the fishing rod tip of {} would read up to {} pixel samples, assuming the vanilla rod",
+                    sprite.getId(), samples);
+            return null;
+        }
         float minAlpha = ITEM_ALPHA_CUTOUT * 255f;
         return (x, y) -> {
             for (int frame : visibleFrames) {
@@ -140,21 +160,39 @@ final class RodSprite {
      * The far end of the rod: the visible texel corner that lies furthest along the rod's
      * handle-to-tip direction (towards the texture's top-right). Corners tied for the extreme
      * (a chamfered tip) are averaged. Returns texture {@code (u, v)} in {@code [0, 1]}, v down.
+     *
+     * <p>Only the sheet's top-right triangle is ever read. A tip {@link #measureTip} would keep has
+     * {@code u >= VANILLA_TIP_UV.x - MAX_TIP_SHIFT} and {@code v <= VANILLA_TIP_UV.y + MAX_TIP_SHIFT},
+     * so its score is at least {@code 11/16} of {@code width * height}; nothing below that floor can
+     * win or tie a measurement that survives the gate, so the row loop stops once no row can reach
+     * it and each row's scan stops at the leftmost column that still could. The kept result is
+     * exactly a full scan's - the floor only ever drops candidates the gate would reject, and a tip
+     * that clears the floor but fails the gate per component is still found and still logged - while
+     * the work falls to about a twentieth of the sheet, whatever the pack draws.
      */
     private static @Nullable Vector2f findTip(int width, int height, PixelMask visible) {
         // A pixel's top-right corner is its extreme point along (+u, -v). Score u - v, scaled by
         // width * height so the comparison stays exact in integers.
+        // The lowest score a tip the plausibility gate would keep can have (see the Javadoc).
+        long minScore = (long) Math.ceil(((VANILLA_TIP_UV.x() - MAX_TIP_SHIFT) - (VANILLA_TIP_UV.y() + MAX_TIP_SHIFT))
+                * (double) width * (double) height);
         long best = Long.MIN_VALUE;
         long sumX = 0;
         long sumY = 0;
         int count = 0;
         for (int y = 0; y < height; y++) {
-            // No pixel in this row or below can reach the best score any more.
-            if ((long) width * height - (long) y * width < best) {
+            // A score has to reach the floor and the best so far to matter, and the most this row
+            // and every row below it can offer is its rightmost pixel's.
+            long need = Math.max(best, minScore);
+            if ((long) width * height - (long) y * width < need) {
                 break;
             }
+            // The leftmost column that could still reach it: (x + 1) * height - y * width >= need.
+            // need is positive and y * width is not, so the ceiling is a plain integer division.
+            long leftmost = (need + (long) y * width + height - 1) / height - 1;
+            int minX = (int) Math.max(0, Math.min(width, leftmost));
             // Scan from the right: the row's rightmost visible pixel is its extreme.
-            for (int x = width - 1; x >= 0; x--) {
+            for (int x = width - 1; x >= minX; x--) {
                 if (!visible.isVisible(x, y)) {
                     continue;
                 }

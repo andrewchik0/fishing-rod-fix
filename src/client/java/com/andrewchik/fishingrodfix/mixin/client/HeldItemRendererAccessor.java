@@ -21,12 +21,12 @@ public interface HeldItemRendererAccessor {
     @Accessor("equipProgressMainHand")
     float fishingrodfix$getEquipProgressMainHand();
 
-    @Accessor("lastEquipProgressMainHand")
-    float fishingrodfix$getLastEquipProgressMainHand();
+    @Accessor("prevEquipProgressMainHand")
+    float fishingrodfix$getPrevEquipProgressMainHand();
 
     @Accessor("equipProgressOffHand")
     float fishingrodfix$getEquipProgressOffHand();
 
-    @Accessor("lastEquipProgressOffHand")
-    float fishingrodfix$getLastEquipProgressOffHand();
+    @Accessor("prevEquipProgressOffHand")
+    float fishingrodfix$getPrevEquipProgressOffHand();
 }

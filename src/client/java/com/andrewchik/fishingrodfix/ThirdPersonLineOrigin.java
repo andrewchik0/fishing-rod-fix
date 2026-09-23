@@ -46,9 +46,10 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * <p>Instead of modelling that pose, the rod is read where it is drawn: where
  * {@code HeldItemFeatureRenderer.renderItem} draws a rod in the hand of a player who is fishing, the
  * pose it draws with (whatever vanilla and other mods made of the body, arm and item up to there)
- * places {@link ThirdPersonRod}'s attachment point, in the buffer source's space, tagged with the pass
- * it was drawn in: the buffer source, the {@link HandPass} frame and the number of passes that have
- * ended. On 1.21.5 nothing is deferred and one {@code VertexConsumerProvider.Immediate} (the
+ * places {@link ThirdPersonRod}'s attachment point, in the drawing space, tagged with the pass
+ * it was drawn in: the {@link HandPass} frame, the number of passes that have ended, and either the
+ * buffer source or - for a drawing inside the world's entity loop - that loop (see the next
+ * paragraph). On 1.21.4 nothing is deferred and one {@code VertexConsumerProvider.Immediate} (the
  * {@code GameRenderer}'s) takes every vanilla pass of a frame (the world's entities and block
  * entities, the first-person hand, the screen effects and the GUI's pictures such as the inventory's
  * player model), so a pass ends where {@code WorldRenderer.renderEntities} returns and wherever a
@@ -58,7 +59,49 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * The line's offset goes straight into {@code render}'s locals; the render state's {@code pos} keeps
  * vanilla's value.
  *
- * <p>Vanilla 1.21.5 draws the world's entities in the order the client added them
+ * <p>The collector identity alone would not do, because a mod may hand each entity its own.
+ * <b>Iris with a shader pack does</b>: its {@code entity_render_context/MixinEntityRenderDispatcher}
+ * {@code @ModifyVariable}s the buffer-source argument of every {@code EntityRenderDispatcher.render}
+ * into a freshly allocated {@code BufferSourceWrapper} as soon as a pack has set
+ * {@code WorldRenderingSettings.entityIds} - which nothing resets, so it outlives unloading the pack
+ * until the game restarts. A rod and its hook then never share one, and with the collector as the
+ * only tie the whole body-held path would be off for every shader user. What the two do share is the
+ * loop that drew them: the head hook of {@link com.andrewchik.fishingrodfix.mixin.client.WorldRendererMixin}
+ * runs once, before the first entity, and records the pass the loop opens in
+ * ({@link HandPass#frame()} and the pass-end count); every drawing notes whether it happened while
+ * that record still held, and the match takes two such drawings of one pass as the same pass even
+ * when their collectors differ. The pose is the loop's own {@code MatrixStack} either way, so the two
+ * readings are in the same space - which is what the collector was ever a proxy for. Three things
+ * stay out of that window by construction: the <b>GUI's</b> pictures, drawn past the loop's end mark
+ * and past every buffer-source flush, so their pass-end count differs; <b>Iris' shadow pass</b>,
+ * which never goes through {@code renderEntities} and is drawn before the loop's head records
+ * anything, so its drawings see the previous frame's record and note themselves as outside (it keeps
+ * pairing by collector, as it did before: its own one buffer source without a pack, per-entity
+ * wrappers with one); and anything in a later frame, since the record carries the frame. A body drawn
+ * inside the loop but into another collector is now matched where it used to miss: a glowing player
+ * or a spectator's outlines ({@code OutlineVertexConsumerProvider}), and a mod's own buffer source
+ * used inside the loop. For one drawn <em>after</em> the hooks (Real Camera's binding mode, its
+ * default, at the loop's very return; its classic mode already shared the pass's collector) that
+ * means the remembered spot is refreshed in the same pass instead of never; for one drawn before
+ * them the line sits on this frame's rod. The head hook is optional: without it nothing is ever
+ * noted as inside a loop and the match is the collector's alone, exactly as before. Two things the
+ * window does not cover: a body drawn at the loop's very head, before the record is taken (First
+ * Person Model injects there at the default priority, below this hook's), which with an Iris pack
+ * is then the one body inside the loop that isn't matched; and the assumption itself - the window
+ * says two drawings share the loop's own {@code MatrixStack} space, which every mod checked does,
+ * but a mod drawing a body through a stack rooted elsewhere would now be matched where the
+ * collector tag used to refuse it.
+ *
+ * <p>The remembered offset carries one thing of the frame it was read in: the render offset
+ * {@code EntityRenderer.getPositionOffset(S)} adds on top of the entity's position, which the pose
+ * includes and the body position it is measured against does not. It cancels while the offset is
+ * the same in both frames, and a player's has only two parts - the crouch shift, which moves with
+ * the pose the remembered path already gates on, and the experimental minecart's lerp, which does
+ * not, and is then a frame of that lerp out on this fallback path. Re-deriving it would mean
+ * re-deriving a vanilla method any mod may override, at both the reading and the replay, which is
+ * the modelling this class exists to avoid; see {@link #remember}.
+ *
+ * <p>Vanilla 1.21.4 draws the world's entities in the order the client added them
  * ({@code WorldRenderer.getEntitiesToRender} walks {@code ClientWorld.getEntities()}, which
  * {@code EntityIndex} keeps in an {@code Int2ObjectLinkedOpenHashMap}, and vanilla never sorts the
  * list - {@code ENTITY_COMPARATOR} existed only in 1.21.6-1.21.8), so a player would be drawn before
@@ -73,7 +116,7 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * position. The same is true for a hook the server sent before its owner, or a body another mod draws
  * after the hooks.
  *
- * <p>1.21.5 does extract and draw each entity in turn ({@code EntityRenderDispatcher.render}), so
+ * <p>1.21.4 does extract and draw each entity in turn ({@code EntityRenderDispatcher.render}), so
  * the owners of a pass's hooks are not all known when the first rods are drawn - where 1.21.9 and
  * 26.x extract every entity before submitting any, and can gate on this frame alone. The gate at the
  * held-item call therefore takes the hooks of this frame <em>and</em> the previous one, and every
@@ -104,10 +147,11 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  * left at vanilla's value (see its Javadoc) while the camera is on that player (and vanilla, with the
  * camera in first person and the player awake, doesn't draw the body) only moves onto a body drawn
  * earlier in the same pass: one a mod draws in first person without changing the branch (Player
- * Animation Library's first-person model mode), or the one Iris' shadow pass draws into the shadow map
- * in the launches where its own entity order (it sorts its list by the same {@code EntityType} identity
- * hash, and never calls {@code WorldRenderer.renderEntities}, so the sort hook doesn't reach it) puts the
- * rod before the hook. Where the rod was last drawn doesn't count for it: no body is on screen, and an
+ * Animation Library's first-person model mode). Not Iris' shadow pass: it exists only with a shader
+ * pack, and with one every entity render gets its own buffer source, so its rod and its hook never
+ * pair (it never calls {@code renderEntities} either - it sorts its own list by the same
+ * {@code EntityType} identity hash - so neither the sort hook nor the loop tie reaches it).
+ * Where the rod was last drawn doesn't count for it: no body is on screen, and an
  * F5 view just left or the shadow pass's body would start the visible line at a rod that isn't drawn.
  * It keeps vanilla's first-person value. With the camera on another entity vanilla never draws the
  * local player, so a body on screen is a mod's and may come after the hooks (Freecam's Show Player
@@ -126,7 +170,7 @@ public final class ThirdPersonLineOrigin {
      * Mixed into {@code FishingBobberEntityState}: the owner whose drawn rod the line moves onto when
      * the hook is drawn (null for a line on the first-person rod, or with no player owner), the owner's
      * partial tick, and whether only a rod drawn earlier in the same pass counts (see
-     * {@link #onFirstPersonVanilla}). The owner is dropped when the state is drawn: on 1.21.5 one
+     * {@link #onFirstPersonVanilla}). The owner is dropped when the state is drawn: on 1.21.4 one
      * {@code EntityRenderer} keeps one render state for every entity of its type, for the client's
      * whole life, so the last hook of a world would otherwise keep its owner — and its world — alive
      * until the next hook is extracted. Other mods keep render states past their frame too (Iris'
@@ -151,6 +195,9 @@ public final class ThirdPersonLineOrigin {
         // source a mod replaces (Iris on a shader reload) is held until the player's next drawn rod,
         // no longer.
         private @Nullable VertexConsumerProvider collector;
+        // Whether it was drawn inside the world's entity loop, which ties it to every other drawing
+        // of that loop however the collectors differ (see the class Javadoc).
+        private boolean inEntityLoop;
         private long frame;
         private long passEnds;
         private Arm arm = Arm.RIGHT;
@@ -186,7 +233,7 @@ public final class ThirdPersonLineOrigin {
     // frame's hooks with the arm each draws its rod in (ownerKey): rods are only read in those frames,
     // only for those players and only in that arm, so every other frame costs the held-item call one
     // compare per drawn item, and every other drawn item (another player's, an armour stand's, the
-    // fishing player's other hand) one or two set lookups. 1.21.5's held-item call has no stack to
+    // fishing player's other hand) one or two set lookups. 1.21.4's held-item call has no stack to
     // tell a rod by, so this stands in for a rod check; what is drawn in that arm is still checked
     // out of line. Both sets are bounded by the hooks extracted in one frame; the frame's own is
     // cleared and they are swapped at the frame's start. The previous frame's is needed for the
@@ -204,18 +251,30 @@ public final class ThirdPersonLineOrigin {
 
     // Passes that have ended so far, from two optional hooks: WorldRenderer.renderEntities' return,
     // and any VertexConsumerProvider.Immediate.draw(), which ends whatever was drawn into that buffer
-    // source (on 1.21.5 one of them serves every vanilla pass of a frame). The first is what separates
+    // source (on 1.21.4 one of them serves every vanilla pass of a frame). The first is what separates
     // the world's entities from the GUI's pictures when a mod replaces the buffer sources and
     // vanilla's draw() never runs (ImmediatelyFast's BatchableBufferSource overrides it), the second
     // what separates passes that share one entity loop with a mod's own buffer source. 0 while
     // neither hook applies, and then no pass is matched at all.
     private static long passEnds;
 
-    // The pass of the latest hook drawn (its buffer source, frame and pass ends), with that hook's world
+    // The pass the world's entity loop is running in, from the optional head hook: the frame it
+    // started in and the pass-end count it started at. Everything drawn while both still hold is one
+    // of that loop's own drawings, whatever buffer source it went into - which is what keeps the
+    // body-held path working where a mod gives each entity its own collector (Iris with a shader
+    // pack; see the class Javadoc). The loop's end mark raises passEnds, and so does every flush
+    // between the loop and the GUI, so the window closes on its own; a frame that never reaches the
+    // head hook leaves the previous frame's record, which the frame check rejects.
+    private static long entityLoopFrame = Long.MIN_VALUE;
+    private static long entityLoopPassEnds = -1;
+
+    // The pass of the latest hook drawn (its buffer source, whether it was inside the entity loop,
+    // frame and pass ends), with that hook's world
     // position and the inverse of its pose: together they turn a point in the pass's space into the
     // world, for a rod drawn after its hook. Forgotten at the next frame's start: the buffer source may
     // be a shadow pass's, which Iris replaces on a dimension change or shader reload.
     private static @Nullable VertexConsumerProvider passCollector;
+    private static boolean passInEntityLoop;
     private static long passFrame;
     private static long passEndsAtHook;
     private static double passHookX;
@@ -251,6 +310,7 @@ public final class ThirdPersonLineOrigin {
      */
     public static void onFrameStart() {
         passCollector = null;
+        passInEntityLoop = false;
         pendingState = null;
         IntOpenHashSet spent = lastBodyHookOwners;
         lastBodyHookOwners = bodyHookOwners;
@@ -265,7 +325,7 @@ public final class ThirdPersonLineOrigin {
      * rather than on the spot remembered from the last one. Both parts keep their order, so the
      * client's add order (and any order another mod sorted into) survives inside them.
      *
-     * <p>Vanilla 1.21.5 does not need this: it draws the entities in the order the client added them
+     * <p>Vanilla 1.21.4 does not need this: it draws the entities in the order the client added them
      * (see the class Javadoc), which already puts a body before the hooks it cast, and unlike
      * 1.21.6-1.21.8 there is no {@code ENTITY_COMPARATOR}. <b>Iris does.</b> Its
      * {@code MixinLevelRenderer_EntityListSorting} (mixin priority 999, in
@@ -280,11 +340,17 @@ public final class ThirdPersonLineOrigin {
      * drawn before every body for the whole session. This walk runs at the head of
      * {@code renderEntities}, after everything that fills or reorders the list, and settles it.
      *
+     * <p>Running once, before the loop's first entity, it is also where the pass that loop draws in
+     * is recorded ({@link #inEntityLoop}): that record is what lets a rod and its hook be matched
+     * when a mod hands each entity its own collector, which Iris with a shader pack does (see the
+     * class Javadoc). The record is taken first, before anything below can decline to reorder the
+     * list, and it is two field writes.
+     *
      * <p>The same walk opens the rod-reading gate for the hooks it passes, which is what makes the
      * first frame of a cast exact here. From 1.21.9 on, and on 26.x, vanilla extracts every entity's
      * render state before it submits any of them, so a hook's extraction - where the gate is stamped -
      * always comes before its owner's rod is submitted in that frame, and those branches gate on this
-     * frame alone. 1.21.5 interleaves the two per entity, so in vanilla's own flow no hook of this
+     * frame alone. 1.21.4 interleaves the two per entity, so in vanilla's own flow no hook of this
      * frame has been extracted by the head of the loop and the gate would only hold the previous
      * frame's; a hook's first frame would then read no rod at all and its line would fall back for
      * that frame. The draw list is that missing knowledge, available one step early: every bobber in
@@ -300,7 +366,7 @@ public final class ThirdPersonLineOrigin {
      * reference stores per entity vanilla itself makes on that same list in the same frame
      * ({@code getEntitiesToRender}'s {@code output.add} and the later {@code clear()}); and a bobber
      * costs a field read, an {@code isRemoved()} test and an {@code instanceof} inside
-     * {@code getPlayerOwner} (1.21.5's projectiles hold their owner directly - no
+     * {@code getPlayerOwner} (1.21.4's projectiles hold their owner directly - no
      * {@code LazyEntityReference}, no {@code Optional}), of which there are only ever a handful.
      * With {@link #onItemDrawn} it is one of the two places where the mod's cost scales with what is
      * drawn, and the only one linear in <em>all</em> the drawn entities; measured against the entity
@@ -345,6 +411,14 @@ public final class ThirdPersonLineOrigin {
      */
     public static void sortBobbersLast(List<Entity> entities) {
         MinecraftClient mc = MinecraftClient.getInstance();
+        // The world's entity pass opens here, before anything below can decline to reorder it: this
+        // is what ties the loop's drawings together when their collectors differ (see the class
+        // Javadoc). Two field writes, and nothing that can throw. Without frame counting the record
+        // would be indistinguishable from a later frame's, so it isn't taken at all.
+        if (HandPass.framesCounted()) {
+            entityLoopFrame = HandPass.frame();
+            entityLoopPassEnds = passEnds;
+        }
         if (sortFailed || disabledIn.get() == mc.world) {
             return;
         }
@@ -475,7 +549,7 @@ public final class ThirdPersonLineOrigin {
             // frozen.
             float ownerPartialTicks = player.getWorld().getTickManager().shouldTick()
                     ? partialTicks
-                    : mc.getRenderTickCounter().getTickProgress(true);
+                    : mc.getRenderTickCounter().getTickDelta(true);
             hookState.fishingrodfix$setBodyRodOwner(player, ownerPartialTicks, firstPersonVanilla);
         } catch (RuntimeException | LinkageError e) {
             // As every other entry from vanilla: vanilla's line until the next world. A line left with
@@ -485,14 +559,15 @@ public final class ThirdPersonLineOrigin {
     }
 
     /**
-     * Called where {@code HeldItemFeatureRenderer.renderItem} draws a held item, for every armed
-     * entity: small, so it inlines there; only an arm a player whose hook was extracted this frame or
-     * the previous one had its rod in goes on (1.21.5's call has no stack: whether the item drawn
+     * Called where {@code HeldItemFeatureRenderer.renderItem} draws a held item, past its empty check,
+     * so once per non-empty held item of an armed entity: small, so it inlines there; only an arm a
+     * player whose hook was extracted this frame or the previous one had its rod in goes on (1.21.4's call has no stack: whether the item drawn
      * there is that player's rod <em>now</em>, and in <em>this</em> arm, is decided out of line, since
      * a key from the previous frame carries that frame's arm).
      */
-    public static void onItemDrawn(ArmedEntityRenderState state, Arm arm, MatrixStack matrices, VertexConsumerProvider vertexConsumers) {
-        if (bodyHookFrame >= HandPass.frame() - 1 && state instanceof PlayerEntityRenderState player) {
+    public static void onItemDrawn(ArmedEntityRenderState state, @Nullable Arm arm, MatrixStack matrices, VertexConsumerProvider vertexConsumers) {
+        // arm is never null from vanilla; a mod passing null must not throw out of the item drawing.
+        if (arm != null && bodyHookFrame >= HandPass.frame() - 1 && state instanceof PlayerEntityRenderState player) {
             int key = ownerKey(player.id, arm);
             if (lastBodyHookOwners.contains(key) || bodyHookOwners.contains(key)) {
                 readDrawnRod(player, arm, matrices, vertexConsumers);
@@ -525,11 +600,13 @@ public final class ThirdPersonLineOrigin {
         }
         try {
             // The rod itself (rodInArm). The arm has to be re-checked live: the gate also admits the
-            // previous frame's key, whose arm is the one getArmHoldingRod named then, and with a rod
-            // in both hands (or one arriving in the main hand) that is the other arm - which is drawn
-            // in the same frame and, since the layer draws RIGHT then LEFT, could overwrite the right
-            // reading. The item state was extracted from getStackInArm just before this drawing, and
-            // nothing ticks in between, so the live stack is the one drawn.
+            // previous frame's key, whose arm is the one getArmHoldingRod named then, and that is the
+            // other arm on the frame a rod arrives in the main hand while the off hand already holds
+            // one (only the main hand's rod-ness moves getArmHoldingRod, so nothing else flips it).
+            // Both arms are drawn that frame, and with the default right main hand the stale one is
+            // the left, which the layer draws second, so it would overwrite the right reading. The
+            // item state was extracted from getStackInArm just before this drawing, and nothing ticks
+            // in between, so the live stack is the one drawn.
             if (!(world.getEntityById(state.id) instanceof AbstractClientPlayerEntity player) || player.fishHook == null
                     || !rodInArm(player, arm)) {
                 return;
@@ -542,6 +619,7 @@ public final class ThirdPersonLineOrigin {
             }
             matrices.peek().getPositionMatrix().transformPosition(ThirdPersonRod.lineAnchor(mc), rod.tip);
             rod.collector = vertexConsumers;
+            rod.inEntityLoop = inEntityLoop();
             rod.frame = HandPass.frame();
             rod.passEnds = passEnds;
             rod.arm = arm;
@@ -550,7 +628,7 @@ public final class ThirdPersonLineOrigin {
             rod.bodyZ = state.z;
             rod.bodyYaw = state.bodyYaw;
             rod.pose = state.pose;
-            // 1.21.5's LivingEntityRenderState carries no riding flag; the entity's is the one it was
+            // 1.21.4's LivingEntityRenderState carries no riding flag; the entity's is the one it was
             // extracted with (nothing ticks between this frame's extraction and this drawing).
             rod.riding = player.hasVehicle();
             // Drawn after a hook of this pass: that hook gives the world position to remember it at.
@@ -594,6 +672,7 @@ public final class ThirdPersonLineOrigin {
             // space; the inverse brings a drawn rod back into it.
             matrices.peek().getPositionMatrix().invertAffine(passInverse);
             passCollector = vertexConsumers;
+            passInEntityLoop = inEntityLoop();
             passFrame = HandPass.frame();
             passEndsAtHook = passEnds;
             passHookX = state.x;
@@ -634,9 +713,26 @@ public final class ThirdPersonLineOrigin {
         passEnds++;
     }
 
-    /** Whether {@code rod} was last drawn in the pass of the latest hook drawn. */
+    /**
+     * Whether the drawing happening right now belongs to the world's entity loop: the loop's head
+     * recorded the pass it opened, and nothing has ended a pass since. Read when a rod or a hook is
+     * drawn, never later - Iris' shadow pass runs before the head records anything, so its drawings
+     * see the previous frame's record and come out false even though the loop that follows them will
+     * carry the same frame and pass-end count.
+     */
+    private static boolean inEntityLoop() {
+        return HandPass.frame() == entityLoopFrame && passEnds == entityLoopPassEnds;
+    }
+
+    /**
+     * Whether {@code rod} was last drawn in the pass of the latest hook drawn: the same frame and the
+     * same number of ended passes, and either the same collector or both inside the world's entity
+     * loop, which ties its drawings together where a mod gives each entity its own collector (see the
+     * class Javadoc).
+     */
     private static boolean drawnInLastHookPass(BodyRod rod) {
-        return rod.collector == passCollector && rod.frame == passFrame && rod.passEnds == passEndsAtHook;
+        return rod.frame == passFrame && rod.passEnds == passEndsAtHook
+                && (rod.collector == passCollector || (rod.inEntityLoop && passInEntityLoop));
     }
 
     /**
@@ -711,7 +807,23 @@ public final class ThirdPersonLineOrigin {
                 (float) (MathHelper.lerp(partialTicks, owner.lastRenderZ, owner.getZ()) - state.z + offset.z));
     }
 
-    /** Remembers the drawn tip, at world position {@code (x, y, z)}, relative to the body it was drawn with. */
+    /**
+     * Remembers the drawn tip, at world position {@code (x, y, z)}, relative to the body it was drawn
+     * with.
+     *
+     * <p>The body position is the render state's, the lerped entity position, while the tip came
+     * through a pose {@code EntityRenderDispatcher.render} had translated by that position
+     * <em>plus</em> {@code EntityRenderer.getPositionOffset}. The remembered offset therefore carries
+     * the reading frame's position offset, and {@link #remembered} adds it to a body position that
+     * has none - which cancels exactly as long as the offset is the same in both frames, and that is
+     * all of it in practice. A player's has two parts: the sneaking shift
+     * ({@code PlayerEntityRenderer}: {@code -2/16} times the base scale), which moves only with the
+     * pose the remembered path already checks (a scale attribute changing mid-crouch moves it too, by
+     * at most {@code 2/16} of that change), and the experimental minecart's lerp, which needs the
+     * game rule, a minecart to ride and this fallback path at once and is then a frame of that lerp
+     * out. Re-deriving either here would be modelling the pose, which is the one thing this class
+     * does not do.
+     */
     private static void remember(BodyRod rod, double x, double y, double z) {
         rod.offset.set((float) (x - rod.bodyX), (float) (y - rod.bodyY), (float) (z - rod.bodyZ));
         rod.offsetYaw = rod.bodyYaw;
@@ -724,8 +836,8 @@ public final class ThirdPersonLineOrigin {
     /** The body's yaw as drawn: LivingEntityRenderer.clampBodyYaw (a rider's turns towards its head). */
     private static float bodyYaw(PlayerEntity owner, float partialTicks) {
         if (owner.getVehicle() instanceof LivingEntity riding) {
-            float headYaw = MathHelper.lerpAngleDegrees(partialTicks, owner.lastHeadYaw, owner.headYaw);
-            float bodyYaw = MathHelper.lerpAngleDegrees(partialTicks, riding.lastBodyYaw, riding.bodyYaw);
+            float headYaw = MathHelper.lerpAngleDegrees(partialTicks, owner.prevHeadYaw, owner.headYaw);
+            float bodyYaw = MathHelper.lerpAngleDegrees(partialTicks, riding.prevBodyYaw, riding.bodyYaw);
             float headDiff = MathHelper.clamp(MathHelper.wrapDegrees(headYaw - bodyYaw), -RIDER_MAX_HEAD_DIFF, RIDER_MAX_HEAD_DIFF);
             bodyYaw = headYaw - headDiff;
             if (Math.abs(headDiff) > RIDER_TURN_THRESHOLD) {
@@ -733,7 +845,7 @@ public final class ThirdPersonLineOrigin {
             }
             return bodyYaw;
         }
-        return MathHelper.lerpAngleDegrees(partialTicks, owner.lastBodyYaw, owner.bodyYaw);
+        return MathHelper.lerpAngleDegrees(partialTicks, owner.prevBodyYaw, owner.bodyYaw);
     }
 
     private static void disable(MinecraftClient mc, Throwable e) {

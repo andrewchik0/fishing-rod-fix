@@ -1,5 +1,5 @@
 plugins {
-	// Minecraft 1.21.5 is obfuscated -> the remapping Loom variant (net.fabricmc.fabric-loom-remap):
+	// Minecraft 1.21.4 is obfuscated -> the remapping Loom variant (net.fabricmc.fabric-loom-remap):
 	// the code compiles against yarn names and Loom remaps it to intermediary; the deliverable is the
 	// remapJar output.
 	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
@@ -66,8 +66,8 @@ jar {
 }
 
 // Name the final remapped jar in build/libs as:
-//   fishingrodfix-<minecraft_version>-v<mod_version>.jar  (e.g. fishingrodfix-1.21.5-v0.6.jar)
-// This build covers 1.21.5 only (see CLAUDE.md and depends.minecraft in fabric.mod.json). Set on
+//   fishingrodfix-<minecraft_version>-v<mod_version>.jar  (e.g. fishingrodfix-1.21.4-v0.6.jar)
+// This build covers 1.21.4 only (see CLAUDE.md and depends.minecraft in fabric.mod.json). Set on
 // remapJar only (jar above builds the dev jar), so fabric.mod.json's "version" field stays
 // = mod_version. Auto-updates per port because it reads the gradle.properties values.
 tasks.named('remapJar') {

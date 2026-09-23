@@ -13,7 +13,7 @@ import java.util.SequencedMap;
 /**
  * Ends a pass for {@link ThirdPersonLineOrigin} when a buffer source flushes everything it holds, next
  * to {@link WorldRendererMixin}'s mark at the end of the world's entity pass: on
- * 1.21.5 nothing is deferred, and the {@code GameRenderer}'s one
+ * 1.21.4 nothing is deferred, and the {@code GameRenderer}'s one
  * {@code VertexConsumerProvider.Immediate} takes the world's entities and block entities, the
  * first-person hand pass, the screen effects and the GUI's pictures (the inventory's player model,
  * banners, signs, books), each ending with a {@code draw()}: {@code WorldRenderer.renderMain}'s frame-graph

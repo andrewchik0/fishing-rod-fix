@@ -162,13 +162,13 @@ public final class HandPass {
             return false;
         }
         // Where Camera.update puts a first-person camera, at the partial tick it was updated with.
-        float tickProgress = camera.getLastTickProgress();
+        float tickDelta = camera.getLastTickDelta();
         CameraAccessor eye = (CameraAccessor) camera;
         Vec3d position = camera.getPos();
-        double dx = position.x - MathHelper.lerp(tickProgress, player.lastX, player.getX());
-        double dy = position.y - (MathHelper.lerp(tickProgress, player.lastY, player.getY())
-                + MathHelper.lerp(tickProgress, eye.fishingrodfix$getLastCameraY(), eye.fishingrodfix$getCameraY()));
-        double dz = position.z - MathHelper.lerp(tickProgress, player.lastZ, player.getZ());
+        double dx = position.x - MathHelper.lerp(tickDelta, player.prevX, player.getX());
+        double dy = position.y - (MathHelper.lerp(tickDelta, player.prevY, player.getY())
+                + MathHelper.lerp(tickDelta, eye.fishingrodfix$getLastCameraY(), eye.fishingrodfix$getCameraY()));
+        double dz = position.z - MathHelper.lerp(tickDelta, player.prevZ, player.getZ());
         return dx * dx + dy * dy + dz * dz < CAMERA_AT_EYE_SQ;
     }
 }

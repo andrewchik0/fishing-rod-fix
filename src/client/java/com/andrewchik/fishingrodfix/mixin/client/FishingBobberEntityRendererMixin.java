@@ -25,10 +25,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * and in {@link ThirdPersonLineOrigin} for a rod held by a player's body) and hides the line of a hook
  * whose rod has left its owner's hands ({@link FishingLineVisibility}).
  *
- * <p>On 1.21.5 nothing is deferred: {@code render} draws the catenary itself, segment by segment,
+ * <p>On 1.21.4 nothing is deferred: {@code render} draws the catenary itself, segment by segment,
  * from the origin offset {@code updateRenderState} took from {@code getHandPos}. For the first-person
  * rod we modify the value of that method's only {@code Vec3d.add(Vec3d)} call,
- * {@code player.getCameraPosVec(tickProgress).add(vec3d)}, which exists only in its first-person
+ * {@code player.getCameraPosVec(tickDelta).add(vec3d)}, which exists only in its first-person
  * branch ({@code allow = 1} turns a second match into a load failure). Hooking the branch's result
  * rather than the method's return leaves the players other mods send down the third-person branch
  * (First Person Model, and Real Camera on the versions it has a build for, while they draw the local
@@ -77,7 +77,7 @@ public class FishingBobberEntityRendererMixin {
         method = "updateRenderState(Lnet/minecraft/entity/projectile/FishingBobberEntity;Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;F)V",
         at = @At("HEAD")
     )
-    private void fishingrodfix$beginExtraction(FishingBobberEntity hook, FishingBobberEntityState state, float tickProgress, CallbackInfo ci) {
+    private void fishingrodfix$beginExtraction(FishingBobberEntity hook, FishingBobberEntityState state, float tickDelta, CallbackInfo ci) {
         FishingLineVisibility.beginExtraction();
         ThirdPersonLineOrigin.beginExtraction();
         ((FishingLineVisibility.State) state).fishingrodfix$setLineHidden(false);
@@ -98,11 +98,11 @@ public class FishingBobberEntityRendererMixin {
         method = "updateRenderState(Lnet/minecraft/entity/projectile/FishingBobberEntity;Lnet/minecraft/client/render/entity/state/FishingBobberEntityState;F)V",
         at = @At("TAIL")
     )
-    private void fishingrodfix$decideLine(FishingBobberEntity hook, FishingBobberEntityState state, float tickProgress, CallbackInfo ci,
+    private void fishingrodfix$decideLine(FishingBobberEntity hook, FishingBobberEntityState state, float tickDelta, CallbackInfo ci,
                                           @Local(ordinal = 0) PlayerEntity owner) {
         boolean hidden = FishingLineVisibility.decideLineHidden(hook, owner);
         ((FishingLineVisibility.State) state).fishingrodfix$setLineHidden(hidden);
-        ThirdPersonLineOrigin.onHookExtracted(state, owner, FishingLineVisibility.lineOnFirstPersonRod(), hidden, tickProgress);
+        ThirdPersonLineOrigin.onHookExtracted(state, owner, FishingLineVisibility.lineOnFirstPersonRod(), hidden, tickDelta);
     }
 
     /**
@@ -158,7 +158,7 @@ public class FishingBobberEntityRendererMixin {
     }
 
     /**
-     * Skips the catenary of a hidden line; the bobber is still drawn. 1.21.5 emits the line straight
+     * Skips the catenary of a hidden line; the bobber is still drawn. 1.21.4 emits the line straight
      * into the {@code line_strip} buffer, so the condition sits on the one {@code renderFishingLine}
      * call site, which {@code render}'s loop reaches once per segment (17 times) for a hook whose line
      * is drawn at all. Optional here, unlike on the deferred versions where the same condition sits on

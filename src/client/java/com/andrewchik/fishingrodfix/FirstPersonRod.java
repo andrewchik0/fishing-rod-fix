@@ -95,7 +95,7 @@ final class FirstPersonRod {
     }
 
     /**
-     * The right-arm pose stack before the item transform: HeldItemRenderer.swingArm, which on 1.21.5
+     * The right-arm pose stack before the item transform: HeldItemRenderer.swingArm, which on 1.21.4
      * translates by the swing, then calls applyEquipOffset and applySwingOffset; the two translations
      * commute, so the equip offset goes first here.
      */

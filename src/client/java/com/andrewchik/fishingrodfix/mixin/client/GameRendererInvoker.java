@@ -15,11 +15,11 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 @Mixin(GameRenderer.class)
 public interface GameRendererInvoker {
     @Invoker("tiltViewWhenHurt")
-    void fishingrodfix$tiltViewWhenHurt(MatrixStack matrices, float tickProgress);
+    void fishingrodfix$tiltViewWhenHurt(MatrixStack matrices, float tickDelta);
 
     @Invoker("bobView")
-    void fishingrodfix$bobView(MatrixStack matrices, float tickProgress);
+    void fishingrodfix$bobView(MatrixStack matrices, float tickDelta);
 
     @Invoker("getFov")
-    float fishingrodfix$getFov(Camera camera, float tickProgress, boolean changingFov);
+    float fishingrodfix$getFov(Camera camera, float tickDelta, boolean changingFov);
 }

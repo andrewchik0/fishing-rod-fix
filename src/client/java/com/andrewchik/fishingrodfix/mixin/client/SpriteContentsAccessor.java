@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.gen.Invoker;
  * alpha == 0, while held items discard everything below their alpha cutout, so the rod's visible
  * outline needs the real alpha values.
  *
- * <p>{@code getFrameCount} stands in for 1.21.5's missing {@code isAnimated()}: it is
+ * <p>{@code getFrameCount} stands in for 1.21.4's missing {@code isAnimated()}: it is
  * {@code animation != null ? animation.frames.size() : 1}, and {@code createAnimation} returns null
  * for a frame list of one or fewer, so {@code > 1} is exactly {@code animation != null} — the test
  * {@code isPixelTransparent} makes before it offsets a pixel into an animation frame.

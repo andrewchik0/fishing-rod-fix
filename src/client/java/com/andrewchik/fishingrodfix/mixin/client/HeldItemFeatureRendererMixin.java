@@ -15,9 +15,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Reads a fishing player's rod where it is drawn ({@link ThirdPersonLineOrigin}): at the call that
  * draws a held item, with the pose everything before it built (the body, the arm, the layer's hand
- * offset and item animations, other mods' changes to them). Runs for every armed entity's held item,
+ * offset and item animations, other mods' changes to them). Runs past its empty check, so once per non-empty held item of an armed entity,
  * so the handler starts with a compare, a type check and an owner lookup that inline there (on
- * 1.21.5 the method gets no stack: only an (entity id, arm) key stamped by a hook extracted this
+ * 1.21.4 the method gets no stack: only an (entity id, arm) key stamped by a hook extracted this
  * frame or the previous one goes on, and whether that arm is the player's rod arm <em>now</em> - a
  * previous-frame key carries that frame's arm - is decided out of line). Priority 1500
  * puts it after other mods' {@code @Inject}s at the same call at default priority (Player Animation
