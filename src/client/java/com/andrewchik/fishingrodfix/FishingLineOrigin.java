@@ -109,9 +109,7 @@ public final class FishingLineOrigin {
 
     // Clearviews (2.x, mod id "clearviews") removes the warp from renderWorld while its
     // "Disable Nausea" option is on. Assumed on (its default); with it off the line keeps vanilla's
-    // nausea swing. Undoing a warp that isn't applied would swing the line around the rod. With an
-    // Iris shader pack in use, Iris applies the warp itself (in the model view), where Clearviews can't
-    // remove it: the line then swings (a Known limitation).
+    // nausea swing. Undoing a warp that isn't applied would swing the line around the rod.
     private static final boolean CLEARVIEWS_LOADED = FabricLoader.getInstance().isModLoaded("clearviews");
 
     // The hand the rod was last drawn in, for the hook it was drawn with. The drawn items lag the
