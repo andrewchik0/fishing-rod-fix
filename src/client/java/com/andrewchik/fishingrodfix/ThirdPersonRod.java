@@ -1,59 +1,69 @@
 package com.andrewchik.fishingrodfix;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.util.Mth;
+import com.andrewchik.fishingrodfix.mixin.client.LayerRenderStateAccessor;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+import net.minecraft.world.item.ItemStack;
 import org.joml.Matrix4f;
-import org.joml.Matrix4fc;
-import org.joml.Vector2fc;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
+import org.jspecify.annotations.Nullable;
 
 /**
- * Vanilla's third-person fishing rod: where the line attaches to a rod held in a player's hand, in the
- * space {@code ItemInHandLayer.submitArmWithItem} submits the rod's item in (before the item's own
- * display transform).
+ * The rod held in a player's hand: where the line attaches to it, in the space
+ * {@code ItemInHandLayer.submitArmWithItem} submits the rod's item in (before the item's own display
+ * transform).
  *
- * <p>The attachment point is the rod's tip ({@link RodSprite}) on the model's mid-plane, carried through
- * the {@code handheld_rod} display transform that {@code ItemStackRenderState} applies when it draws
- * the rod. Everything up to the hand is the pose the rod was actually drawn with, which
- * {@link ThirdPersonLineOrigin} reads where it is submitted, so no body pose is modelled here. First
- * person keeps vanilla's own anchor instead ({@link FirstPersonRod}): at the rod's scale and angle
- * there it sits by the tip, but a third-person rod, seen from any side, needs the tip itself.
+ * <p>The attachment point is the drawn rod model's tip ({@link RodModel}), carried through the display
+ * transform the item is drawn with, both read from the item's render state. The body pose is the
+ * submitted one ({@link ThirdPersonLineOrigin}), not modelled here.
  */
 final class ThirdPersonRod {
-    // models/item/handheld_rod.json "thirdperson_righthand", applied as ItemTransform.apply does:
-    // translate (in 1/16 block), rotationXYZ, scale, then -0.5 to centre the model. The left hand gets
-    // the same transform: ItemTransform.apply's left-hand fix turns "thirdperson_lefthand" back into it
-    // (the left arm itself puts it on the other side).
-    private static final Vector3fc ROD_ROTATION_DEG = new Vector3f(0f, 90f, 55f);
-    private static final Vector3fc ROD_TRANSLATION  = new Vector3f(0f, 4f, 2.5f).div(16f);
-    private static final float     ROD_SCALE        = 0.85f;
-    private static final Matrix4fc ROD_DISPLAY = new Matrix4f()
-            .translation(ROD_TRANSLATION)
-            .rotateXYZ(Mth.DEG_TO_RAD * ROD_ROTATION_DEG.x(), Mth.DEG_TO_RAD * ROD_ROTATION_DEG.y(), Mth.DEG_TO_RAD * ROD_ROTATION_DEG.z())
-            .scale(ROD_SCALE)
-            .translate(-0.5f, -0.5f, -0.5f);
+    // The last few items read and their anchors, one per model, hand side and transform in view (two
+    // players fishing with rods in different hands, or different rods, don't evict each other); the
+    // least recently read is replaced. Render-thread only.
+    private static final int CACHE_SIZE = 32;
+    private static final DrawnItem[] keys = new DrawnItem[CACHE_SIZE];
+    private static final @Nullable Vector3f[] anchors = new Vector3f[CACHE_SIZE];
+    private static final long[] lastUsed = new long[CACHE_SIZE];
+    private static long uses;
 
-    // The attachment point, recomputed once per frame (HandPass frame): the pack's tip only changes
-    // on a resource reload, between frames, but finding it costs two atlas lookups. Render-thread only.
-    private static final Vector3f cachedAnchor = new Vector3f();
-    private static long cachedFrame = Long.MIN_VALUE;
+    static {
+        for (int i = 0; i < CACHE_SIZE; i++) {
+            keys[i] = new DrawnItem();
+            lastUsed[i] = Long.MIN_VALUE;
+        }
+    }
 
     private ThirdPersonRod() {}
 
     /**
-     * The line's attachment point in the space the rod's item is submitted in by
-     * {@code ItemInHandLayer}; the same for either hand. Only valid until the next call.
+     * The line's attachment point in the space {@code item} (the render state of {@code stack}) is
+     * submitted in; null when it can't be read as a rod, {@link RodModel#DEFERRED} when it isn't
+     * measured yet (then the line isn't taken from this drawing).
      */
-    static Vector3fc lineAnchor(Minecraft mc) {
-        long frame = HandPass.frame();
-        if (frame != cachedFrame) {
-            Vector2fc tip = RodSprite.tipUv(mc);
-            // Texture v points down, model y up; z = 0.5 is the item's mid-plane
-            // (ItemModelGenerator's MIN_Z/MAX_Z = 7.5/8.5 of 16).
-            ROD_DISPLAY.transformPosition(tip.x(), 1f - tip.y(), 0.5f, cachedAnchor);
-            cachedFrame = frame;
+    static @Nullable Vector3fc lineAnchor(ItemStackRenderState item, ItemStack stack) {
+        LayerRenderStateAccessor layer = RodModel.rodLayer(item);
+        if (layer == null) {
+            return null;
         }
-        return cachedAnchor;
+        int slot = 0;
+        for (int i = 0; i < CACHE_SIZE; i++) {
+            if (lastUsed[i] != Long.MIN_VALUE && keys[i].matches(item, layer)) {
+                lastUsed[i] = ++uses;
+                return anchors[i];
+            }
+            if (lastUsed[i] < lastUsed[slot]) {
+                slot = i;
+            }
+        }
+        Matrix4f display = RodModel.display(item, layer);
+        Vector3fc tip = RodModel.tip(item, stack, display);
+        if (tip == RodModel.DEFERRED) {
+            return tip;
+        }
+        keys[slot].set(item, layer);
+        anchors[slot] = tip != null ? display.transformPosition(tip, new Vector3f()) : null;
+        lastUsed[slot] = ++uses;
+        return anchors[slot];
     }
 }

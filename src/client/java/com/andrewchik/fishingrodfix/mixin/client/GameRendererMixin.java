@@ -12,9 +12,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Counts frames and samples the hidden HUD and the hand gate for {@link HandPass}, and lets
  * {@link ThirdPersonLineOrigin} forget the last frame's pass: {@code extract} runs once per frame,
- * after the tick and the camera update and before the level's entities. Optional
- * ({@code require = 0}): if it can't apply, {@link HandPass} reports no hand pass and the line stays
- * vanilla instead of the game crashing.
+ * after the tick and the camera update and before the level's entities. Optional: without it no frames
+ * are counted and the line stays vanilla.
  */
 @Mixin(GameRenderer.class)
 public class GameRendererMixin {

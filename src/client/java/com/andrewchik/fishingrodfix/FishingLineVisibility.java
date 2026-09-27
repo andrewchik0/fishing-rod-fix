@@ -47,15 +47,13 @@ public final class FishingLineVisibility {
     }
 
     // Whether FishingLineOrigin placed the line of the hook being extracted on the drawn first-person
-    // rod. Cleared at the start of extractRenderState, set by the first-person origin hook inside it
-    // and read at its end. Any other line (on a rod held by the body, which shows the live inventory,
-    // or at vanilla's value, whose first-person fallback would start on the off-hand side, where no
-    // rod is) gets the third-person rule. Render-thread only, as is all state here.
+    // rod. Any other line (on a body-held rod, which shows the live inventory, or at vanilla's value,
+    // whose first-person fallback starts on the off-hand side) gets the third-person rule.
+    // Render-thread only, as is all state here.
     private static boolean lineOnDrawnRod;
 
-    // The world the check failed in: lines are never hidden there (vanilla's behavior), so an
-    // incompatible mod or game update degrades instead of crashing. It retries after the next
-    // dimension change or world join (a new ClientLevel). Weak, so a stale level isn't kept alive.
+    // The world the check failed in: lines are never hidden there until a new ClientLevel (dimension
+    // change or world join). Weak, so a stale level isn't kept alive.
     private static WeakReference<ClientLevel> disabledIn = new WeakReference<>(null);
 
     private FishingLineVisibility() {}
@@ -97,8 +95,7 @@ public final class FishingLineVisibility {
         }
         if (owner == mc.player && rodDrawn(mc)) {
             hook.fishingrodfix$markSeenWithRod();
-            // The line starts at the lowering rod: its origin was placed there (a hand was drawn last
-            // frame, or only the hidden HUD hides it).
+            // The line starts at the lowering rod.
             if (lineOnDrawnRod) {
                 return false;
             }

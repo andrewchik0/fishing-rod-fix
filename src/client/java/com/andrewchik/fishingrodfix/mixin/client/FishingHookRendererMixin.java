@@ -13,6 +13,7 @@ import net.minecraft.client.renderer.entity.state.FishingHookRenderState;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.FishingHook;
 import net.minecraft.world.phys.Vec3;
@@ -23,20 +24,18 @@ import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Hooks the fishing line origin (the logic lives in {@link FishingLineOrigin} for the first-person rod
- * and in {@link ThirdPersonLineOrigin} for a rod held by a player's body) and hides the line of a hook
- * whose rod has left its owner's hands ({@link FishingLineVisibility}).
+ * Hooks the fishing line origin ({@link FishingLineOrigin} for the first-person rod,
+ * {@link ThirdPersonLineOrigin} for a body-held rod) and hides the line of a hook whose rod has left
+ * its owner's hands ({@link FishingLineVisibility}).
  *
  * <p>On 26.x the line is a deferred {@code submitCustomGeometry} whose origin offset
- * {@code extractRenderState} takes from {@code getPlayerHandPos}. For the first-person rod we modify
- * the value of that method's only {@code Vec3.add(Vec3)} call,
- * {@code owner.getEyePosition(partialTicks).add(viewVec)}, which exists only in its first-person branch
- * ({@code allow = 1} turns a second match into a load failure). Hooking the branch's result rather than
- * the method's return leaves the players other mods send down the third-person branch (First Person
- * Model and Real Camera, while they draw the local player's body) to the body-held rod, and MixinExtras
- * chains us with other mods that modify the same value. A body-held rod's line is placed at
- * {@code submit}, where the rod drawn earlier in the same pass is known: straight into the offset
- * locals {@code submit} reads, so {@code lineOriginOffset} keeps its extracted value.
+ * {@code extractRenderState} takes from {@code getPlayerHandPos}. The first-person origin is the value
+ * of that method's only {@code Vec3.add(Vec3)}, {@code owner.getEyePosition(partialTicks).add(viewVec)},
+ * in its first-person branch ({@code allow = 1} turns a second match into a load failure). Hooking the
+ * branch rather than the return leaves players other mods send down the third-person branch (First
+ * Person Model, Real Camera) to the body-held rod, and chains with other mods modifying the same value.
+ * A body-held rod's line is placed at {@code submit}, where the rod drawn earlier in the same pass is
+ * known, straight into the offset locals, so {@code lineOriginOffset} keeps its extracted value.
  */
 @Mixin(FishingHookRenderer.class)
 public class FishingHookRendererMixin {
@@ -53,15 +52,31 @@ public class FishingHookRendererMixin {
             return handPos;
         }
         Vec3 origin = FishingLineOrigin.correct(handPos, owner);
-        // Every fallback returns handPos itself. Where FishingLineOrigin keeps vanilla's value with the
-        // camera on the player, only a body drawn earlier in the same pass (a mod's first-person body,
-        // Iris' shadow pass) moves the line (ThirdPersonLineOrigin).
+        // Every fallback returns handPos itself.
         boolean onDrawnRod = origin != handPos;
         FishingLineVisibility.onFirstPersonOrigin(onDrawnRod);
         if (!onDrawnRod) {
             ThirdPersonLineOrigin.onFirstPersonVanilla(owner);
         }
         return origin;
+    }
+
+    /**
+     * Notes that vanilla's {@code getPlayerHandPos} body runs, i.e. no other mod replaced it at HEAD
+     * ({@link ThirdPersonLineOrigin}): at its first statement's {@code getHoldingArm} call, which a
+     * cancelling RETURN inject (First Person Model) can't skip as it would a RETURN injector. Optional:
+     * without it every body-held line is treated as placed by another mod (same-pass rod only).
+     */
+    @ModifyExpressionValue(
+        method = "getPlayerHandPos(Lnet/minecraft/world/entity/player/Player;FF)Lnet/minecraft/world/phys/Vec3;",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/FishingHookRenderer;getHoldingArm("
+                + "Lnet/minecraft/world/entity/player/Player;)Lnet/minecraft/world/entity/HumanoidArm;"),
+        allow = 1,
+        require = 0
+    )
+    private HumanoidArm fishingrodfix$handPosBodyRan(HumanoidArm arm) {
+        ThirdPersonLineOrigin.onHandPosBody();
+        return arm;
     }
 
     /**

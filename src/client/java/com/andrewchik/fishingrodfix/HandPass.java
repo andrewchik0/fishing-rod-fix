@@ -15,28 +15,22 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.LOGGER;
  * ways (Better F1 keeps the hand with the HUD hidden, Player Animation Library and freecam mods cancel
  * the pass) and the vanilla HUD flag is only extracted after the level.
  *
- * <p>Frames are counted at {@code GameRenderer.extract}, which runs once per frame before the level's
- * entities; the hand pass marks the frame when it submits a hand
- * ({@code FirstPersonHandsAndItemsRenderer.submitArmWithItem}, reached from vanilla and from Iris's
- * hand renderer). That call is also reached while scoping, where it draws nothing, so
- * {@link FishingLineOrigin} checks scoping itself. The line origin is computed while extracting, before
+ * <p>Frames are counted at {@code GameRenderer.extract}, once per frame before the level's entities;
+ * the hand pass marks the frame at {@code FirstPersonHandsAndItemsRenderer.submitArmWithItem} (reached
+ * from vanilla and from Iris' hand renderer, and also while scoping, where it draws nothing, so
+ * {@link FishingLineOrigin} checks scoping itself). The origin is computed while extracting, before
  * this frame's hand pass, so it reads the previous frame's result: one frame late when the hand
- * appears or disappears (a mod hiding the hand, waking up). The origin is worked out once per frame,
- * at the first extraction of the local player's hook in the frame; later extractions reuse that
- * result.
+ * appears or disappears.
  *
- * <p>The hidden HUD (F1) needs more: vanilla skips the hand pass then but keeps drawing the line, a
- * world object, so {@link FishingLineOrigin} keeps correcting it where the rod would be. At each
- * frame's extract (after the tick and the camera update, so for this frame's hand pass) this samples
- * the HUD and the rest of {@code renderItemInHand}'s gate (a player, first person, not panoramic,
- * awake, not spectating), plus the camera on the player at its eye, not detached (freecam mods may
- * keep the player as camera entity without detaching the camera). Whether a hand is drawn when only
- * the HUD decides is latched from frames that prove it: a drawn hand, or a missing one while the HUD
- * and that gate were open (then a mod hid it). A frame with the gate closed proves nothing and
- * restores the default (drawn), so F5, sleep or a freecam before F1 leave no stale answer. So a hidden
- * HUD doesn't move the line: F1 keeps what the line did before, and the gate still applies live. What
- * changes unseen while the HUD is hidden (a mod starting or stopping to hide the hand) only shows once
- * the HUD is back. Render-thread only.
+ * <p>The hidden HUD (F1): vanilla skips the hand pass but keeps drawing the line, a world object, so
+ * {@link FishingLineOrigin} keeps correcting it. Each frame's extract (after the tick and camera
+ * update) samples the HUD and the rest of {@code renderItemInHand}'s gate (a player, first person, not
+ * panoramic, awake, not spectating), plus the camera on the player at its eye, not detached (freecam
+ * mods may keep the player as camera entity without detaching). Whether a hand is drawn when only the
+ * HUD decides is latched from frames that prove it: a drawn hand, or a missing one with HUD and gate
+ * open (a mod hid it). A frame with the gate closed restores the default (drawn), so F5, sleep or a
+ * freecam before F1 leave no stale answer. A mod starting or stopping to hide the hand while the HUD
+ * is hidden only shows once the HUD is back. Render-thread only.
  */
 public final class HandPass {
     // Squared distance (blocks) within which the camera counts as at the player's eye. Vanilla's

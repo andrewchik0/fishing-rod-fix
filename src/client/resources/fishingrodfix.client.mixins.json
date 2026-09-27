@@ -13,6 +13,11 @@
     "GameRendererInvoker",
     "GameRendererMixin",
     "ItemInHandLayerMixin",
+    "ItemStackRenderStateAccessor",
+    "LayerRenderStateAccessor",
+    "LevelRendererEndMixin",
+    "LevelRendererMixin",
+    "MinecraftMixin",
     "SpriteContentsAccessor"
   ],
   "injectors": {

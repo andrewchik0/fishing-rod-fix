@@ -52,7 +52,10 @@ Example — the shape on 26.x when this skill was written (verify, it drifts):
 | `getPlayerHandPos` first-person `add(Vec3)` → `FishingLineOrigin.correct` | F4 | the heavy path: pose, sway, bob, projection; worked out once per frame, later extractions (Iris' shadow pass) reuse it. Measured 2026-09-22 on 26.3's version with a scratch harness on the real JOML/PoseStack classes: ~120 ns and 576 B per computation without escape analysis (144 B with it) |
 | `getPlayerHandPos` third-person `add(DDD)` → `ThirdPersonLineOrigin` (if the branch has it) | F5 | every player's hook; watch for render-state extraction or allocation per hook |
 | `FishingHookRenderer.submit` `submitCustomGeometry` → visibility condition | F5 | |
-| `FirstPersonRod.anchorUv` → sprite measurement | F1 | cached per sprite identity; runs inside the first corrected frame after a reload |
+| `RodModel.tip` → model measurement | F1 | cached per baked model and grip (128 weak entries, LRU); at most one per frame (others `DEFERRED`). Ordinary rods: a few thousand steps, 3D models up to ~125k (~0.2-1.4 ms for ≤ 30k, ~3-5 ms for HD staves at 85-125k, measured 2026-09-26/27); cap 200k steps, so a very complex model may take a few ms once (user decision 2026-09-26); grids ≤ 32x32 cells, coarser when cells × frames of both grids pass `GRID_BUDGET` (20k); 3D faces split into 1/16-block cells, each read on ≤ 4x4 texels, touching cells joined through half-texel buckets (linear, no pair tests); the cold first runs happen at world join / dimension change (`MinecraftMixin` warm-up) |
+| `Minecraft.setLevel` TAIL → `RodModel.warmUp` | F1 | every world join / dimension change, behind the loading screen: the pack's uncast vanilla rod, measured once per model (cached; later joins hit the cache): ~2 ms cold for a generated rod, ~9-13 ms for a 3D pack's; plus, once per session, the 3D path on at most 8 faces (a 2-face line): ~0.5-4 ms cold (measured 2026-09-27; class loading dominates) |
+| `LevelRenderer.submitEntities` HEAD / TAIL → `ThirdPersonLineOrigin.onEntitiesStart` / `onEntitiesEnd` | F3 | once per level pass, one static write each |
+| `FirstPersonRod.itemAnchor` / `ThirdPersonRod.lineAnchor` cache hit | F4 / F5 | `DrawnItem` compares only (quads and `ItemTransform` identity, hand side, local transform): no allocation |
 
 ### 2. Inventory each entry point's per-call cost
 

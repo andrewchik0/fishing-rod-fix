@@ -10,8 +10,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Marks the frames in which the first-person hand pass drew a hand, for {@link HandPass}: at the
  * {@code submitArmWithItem} calls, which are only reached past vanilla's own guard and past any mod
- * that cancels {@code submitHandsWithItems} at its head. Optional ({@code require = 0}): if it can't
- * apply, {@link HandPass} reports no hand pass and the line stays vanilla instead of the game crashing.
+ * that cancels {@code submitHandsWithItems} at its head. Optional: without it no hand pass is seen and
+ * the line stays vanilla.
  */
 @Mixin(FirstPersonHandsAndItemsRenderer.class)
 public class FirstPersonHandsAndItemsRendererMixin {

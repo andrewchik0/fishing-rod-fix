@@ -48,9 +48,8 @@ The fix mirrors vanilla's renderer; a formula that compiles can still put the li
 place. For every constant and formula the scope touches, find the vanilla line it mirrors in the
 decompiled source of **this branch** and compare:
 
-- **Constants**: the first-person anchor, the base hand FOV, item sway, `ITEM_POS`, the equip dip
-  scale, the swing constants, the `handheld_rod` first-person display transform (read
-  `assets/minecraft/models/item/handheld_rod.json` in the sources dir), the item alpha cutout, the
+- **Constants**: the base hand FOV, item sway, `ITEM_POS`, the equip dip scale, the swing
+  constants (display transforms are read from the drawn model, `RodModel`), the item alpha cutout, the
   nausea/portal warp, the line's segment count where relevant. The comment next to each names its
   source: check that the source still says that.
 - **Transform order**: a pose stack applies its operations to a point in reverse; a point carried

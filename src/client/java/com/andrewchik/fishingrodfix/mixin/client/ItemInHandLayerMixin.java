@@ -15,14 +15,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Reads a fishing player's rod where it is drawn ({@link ThirdPersonLineOrigin}): at the call that
- * submits a held item, with the pose everything before it built (the body, the arm, the layer's hand
- * offset and item animations, other mods' changes to them). The call sits past
- * {@code submitArmWithItem}'s empty check, so it runs once per non-empty held item of an armed entity
- * and the handler starts with a compare and a type check that inline there. Priority 1500 puts it
- * after other mods' {@code @Inject}s at the same call at default priority (Player Animation
- * Library's and Animatium's item transforms); a wrap, redirect or argument change of the call itself
- * applies after it. Optional ({@code require = 0}): without it a body-held rod's line keeps vanilla's
- * value.
+ * submits a held item, with the pose everything before it built (body, arm, item animations, other
+ * mods' changes). The call sits past {@code submitArmWithItem}'s empty check, so it runs once per
+ * non-empty held item of an armed entity. Priority 1500 puts it after other mods' default-priority
+ * {@code @Inject}s at the same call (Player Animation Library's and Animatium's item transforms); a
+ * wrap, redirect or argument change of the call itself applies after it. Optional: without it a
+ * body-held rod's line keeps vanilla's value.
  */
 @Mixin(value = ItemInHandLayer.class, priority = 1500)
 public class ItemInHandLayerMixin {
@@ -36,6 +34,6 @@ public class ItemInHandLayerMixin {
     )
     private void fishingrodfix$readDrawnRod(ArmedEntityRenderState state, ItemStackRenderState item, ItemStack itemStack, HumanoidArm arm,
                                             PoseStack poseStack, SubmitNodeCollector collector, int lightCoords, CallbackInfo ci) {
-        ThirdPersonLineOrigin.onItemSubmitted(state, itemStack, arm, poseStack, collector);
+        ThirdPersonLineOrigin.onItemSubmitted(state, item, itemStack, arm, poseStack, collector);
     }
 }

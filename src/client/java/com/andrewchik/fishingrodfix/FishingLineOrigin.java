@@ -9,6 +9,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.entity.FishingHookRenderer;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
 import net.minecraft.client.renderer.state.GameRenderState;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.FirstPersonHandsAndItemsRenderState;
@@ -34,25 +35,22 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.holdsRod;
 import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
 
 /**
- * Places the first-person fishing line origin on the rod that is actually drawn (a rod held by a
+ * Places the first-person fishing line origin on the rod the hand pass draws (a rod held by a
  * player's body is {@link ThirdPersonLineOrigin}'s).
  *
- * <p>Vanilla's {@code FishingHookRenderer.getPlayerHandPos} guesses the origin from the eye and the
- * options FOV, while the rod is drawn in a separate hand pass with its own FOV and pose, so the two
- * drift apart. Instead we take the line's attachment point on the drawn rod ({@link FirstPersonRod})
- * and put the world point where the hand pass puts that point on screen. The hand-pass inputs are
- * the state vanilla extracted for this frame ({@code LevelExtractor.extractPlayerState} and
+ * <p>Vanilla's {@code FishingHookRenderer.getPlayerHandPos} guesses from the eye and the options FOV,
+ * while the rod is drawn in a separate hand pass with its own FOV and pose. Instead the rod's
+ * attachment point ({@link FirstPersonRod}) is put where the hand pass draws it on screen, from the
+ * state vanilla extracted for this frame ({@code LevelExtractor.extractPlayerState} and
  * {@code GameRenderer.extractCamera} both run before the level's entities). The world FOV is read from
- * the extracted projection {@code renderLevel} draws the world with (in vanilla the camera's FOV), so
- * mods that change the projection itself, not only the camera's FOV, are followed too; the camera
- * pose comes from the live {@code Camera} that frame was set up from. All of it is this frame's, so
- * the origin is worked out once per frame and reused by further extractions of the local player's
- * hooks in it (Iris' shadow pass extracts them a second time).
+ * the extracted projection {@code renderLevel} uses, so mods that change the projection itself are
+ * followed too. All inputs are this frame's, so the origin is computed once per frame and reused
+ * (Iris' shadow pass extracts the local player's hooks a second time).
  * <ol>
  *   <li><b>Rod pose.</b> The drawn rod's hand (or, while a rod is held but none is drawn yet, the
- *       hand it was last drawn in), its equip/re-equip dip (after every cast and reel-in) and its
- *       swing, exactly as {@code FirstPersonHandsAndItemsRenderer.submitArmWithItem} poses an idle or
- *       swinging item.</li>
+ *       hand it was last drawn in), the attachment point through the display transform
+ *       ({@link FirstPersonRod}, {@link RodModel}), the equip dip and the swing, as
+ *       {@code FirstPersonHandsAndItemsRenderer.submitArmWithItem} poses an idle or swinging item.</li>
  *   <li><b>Item sway.</b> {@code submitHandsWithItems} rotates the whole hand pass by
  *       {@code (viewXRot - xBob) * 0.1deg} about X and {@code (viewYRot - yBob) * 0.1deg} about Y.</li>
  *   <li><b>View bob and hurt tilt</b>, which {@code renderItemInHand} applies before the hand, via
@@ -64,32 +62,25 @@ import static com.andrewchik.fishingrodfix.FishingRodFix.isRod;
  *       when its tangents are the drawn ones times {@code tan(worldFov/2) / tan(handFov/2)}; we take
  *       the one as far from the eye as the drawn point and undo bob and warp. Exact whenever both
  *       passes get the same bob (mods that bob only one pass leave the same mismatch vanilla has).</li>
- *   <li><b>Camera anchor.</b> The hand pass is drawn relative to the camera, so the point is placed
- *       relative to it too (the camera follows the smoothed eye height when crouching, swimming or
- *       gliding; mods may move it).</li>
+ *   <li><b>Camera anchor.</b> The hand pass is drawn relative to the camera (which follows the
+ *       smoothed eye height; mods may move it), so the point is placed relative to it too.</li>
  * </ol>
- * Vanilla's value is kept when no rod can be on screen: the hand pass didn't draw a hand last frame
- * or earlier this frame (spectator, mods that hide or replace it; see {@link HandPass}) or a panorama
- * is being captured. (While vanilla draws the player's own body, asleep or with a detached camera,
- * {@link ThirdPersonLineOrigin} places the line on the body's rod and this isn't asked. Where this
- * keeps vanilla's value with the camera on the player, {@link ThirdPersonLineOrigin} only moves the
- * line onto a body drawn earlier in the same pass: a mod's first-person body, or Iris' shadow pass
- * for the shadow's line.) A HUD
- * hidden with F1 is the exception: it hides the hand but not the line, a world object, which keeps
- * starting where the rod would be while the rest of vanilla's hand gate holds and a hand was drawn
- * when only the HUD decided ({@link HandPass#onlyHudHidesHand}).
- * Vanilla's value is also kept while scoping, where nothing is drawn but the x0.1 world FOV would put
- * the corrected origin inside the scope view (vanilla's guess lands off-screen); when the drawn rod
- * is posed in a way this doesn't model (its hand excluded or using an item, riptide spin, a
- * spear-style stab swing); when no rod has been drawn for the current hook; when the owner isn't the
- * local player, the camera isn't on it or no hand state was extracted; when the world projection
- * isn't a perspective one (an orthographic camera mod); if the result is degenerate (a FOV from
- * another mod out of range); and after an exception, until the next world or dimension.
- * Whether the line is drawn at all is {@link FishingLineVisibility}'s call.
+ * Vanilla's value is kept when: no hand was drawn last frame or earlier this frame (spectator, mods
+ * hiding the hand; {@link HandPass}), unless only an F1-hidden HUD hides it
+ * ({@link HandPass#onlyHudHidesHand}: the line is a world object and keeps starting where the rod
+ * would be); a panorama is captured; scoping (the x0.1 world FOV would put the origin inside the scope
+ * view, where vanilla's lands off-screen); the drawn rod is posed in a way not modelled (its hand
+ * excluded or using an item, riptide, a stab swing); the model can't be read as a rod
+ * ({@link RodModel}: no baked geometry, over budget, no grip known, not measured yet); no rod has been
+ * drawn for the current hook; the owner isn't the local player, the camera isn't on it or no hand
+ * state was extracted; the world projection isn't perspective; the result is degenerate (a FOV out of
+ * range from another mod); after an exception, until the next world or dimension. With the camera on
+ * the player, such a line only moves onto a body drawn earlier in the same pass
+ * ({@link ThirdPersonLineOrigin}). While vanilla draws the player's own body (asleep, detached camera)
+ * this isn't asked. Whether the line is drawn is {@link FishingLineVisibility}'s call.
  */
 public final class FishingLineOrigin {
-    // Vanilla's item-sway factor, from FirstPersonHandsAndItemsRenderer.submitHandsWithItems().
-    // If Mojang changes it, mirror it here.
+    // FirstPersonHandsAndItemsRenderer.submitHandsWithItems' item-sway factor.
     private static final float ITEM_SWAY_SCALE = 0.1f;
 
     // GameRenderer.renderLevel's nausea/portal warp, applied to the world projection after the bob:
@@ -105,35 +96,46 @@ public final class FishingLineOrigin {
     // nausea swing. Undoing a warp that isn't applied would swing the line around the rod.
     private static final boolean CLEARVIEWS_LOADED = FabricLoader.getInstance().isModLoaded("clearviews");
 
-    // The hand the rod was last drawn in, for the hook it was drawn with. The drawn items lag the
-    // inventory, so a rod can be held with none drawn yet (a quick F-swap or re-equip while a hook
-    // lingers); the line then stays with that hand instead of vanilla's getHoldingArm hand. Only while
-    // a rod is held: with none, FishingLineVisibility hides the line of a hook cast from a rod, and
-    // any other hook keeps vanilla's. Weak, so a stale hook isn't kept alive. Render-thread only, as
-    // is all static state here.
+    // The hand the rod was last drawn in, and its hook. The drawn items lag the inventory, so a rod can
+    // be held with none drawn yet (a quick F-swap or re-equip while a hook lingers); the line then
+    // stays with that hand instead of vanilla's getHoldingArm hand. Weak, so a stale hook isn't kept
+    // alive. Render-thread only, as is all static state here.
     private static @Nullable InteractionHand lastRodHand;
     private static WeakReference<FishingHook> lastRodHook = new WeakReference<>(null);
+    // That rod's attachment point (FirstPersonRod.itemAnchor), for the frames it is held but not drawn.
+    private static @Nullable Vector3fc lastItemAnchor;
 
-    // The world the correction failed in: vanilla's value is kept there, so an incompatible mod or
-    // game update degrades to the vanilla line instead of crashing. It retries after the next
-    // dimension change or world join (a new ClientLevel). Weak, so a stale level isn't kept alive.
+    // The world the correction failed in: vanilla's value there until a new ClientLevel (dimension
+    // change or world join). Weak, so a stale level isn't kept alive.
     private static WeakReference<ClientLevel> disabledIn = new WeakReference<>(null);
 
-    // This frame's result (null: vanilla's value), for every later extraction of the local player's
-    // hooks in the same HandPass frame: Iris' shadow pass extracts the hook a second time, from the
-    // same frame's state, so the result can't differ. No reference to the player or the world.
+    // This frame's result (null: vanilla's value), reused by later extractions in the same HandPass
+    // frame (Iris' shadow pass). No reference to the player or the world.
     private static long originFrame = Long.MIN_VALUE;
     private static @Nullable Vec3 frameOrigin;
 
-    // The HandPass hooks are optional (require = 0), so a failed one is reported here, once. A hand
-    // pass that is never seen only counts as failed after this many frames of fishing in first
-    // person with the HUD shown (~20 s at 60 fps): until then a hand may simply not have been drawn.
-    // Counted once per frame, as compute runs.
+    // The HandPass hooks are optional (require = 0), so a failed one is reported here, once: after
+    // this many computed frames of fishing in first person with the HUD shown (~20 s at 60 fps)
+    // without a hand pass; until then a hand may simply not have been drawn.
     private static final int NO_HAND_PASS_WARNING_FRAMES = 1200;
     private static int framesWithoutHandPass;
     private static boolean handPassWarningLogged;
+    private static boolean warmUpFailureLogged;
 
     private FishingLineOrigin() {}
+
+    /** Called after a world is joined or the dimension changes: warms {@link RodModel} up. */
+    public static void onLevelJoin() {
+        try {
+            RodModel.warmUp();
+        } catch (RuntimeException | LinkageError e) {
+            // Only the warm-up is lost: the first cast measures instead.
+            if (!warmUpFailureLogged) {
+                warmUpFailureLogged = true;
+                LOGGER.warn("Could not warm the fishing rod model measurement up; the first cast measures instead", e);
+            }
+        }
+    }
 
     /**
      * Corrects vanilla's first-person line origin {@code handPos}. Called only on the first-person
@@ -145,8 +147,7 @@ public final class FishingLineOrigin {
             return handPos;
         }
         try {
-            // The correction models the player's own view. When the camera sits on another entity
-            // (spectating, Freecam-style mods), keep vanilla's value.
+            // Only the player's own view is modelled (not spectating, not Freecam-style camera entities).
             Camera camera = mc.getEntityRenderDispatcher().camera;
             if (camera == null || camera.entity() != player) {
                 return handPos;
@@ -171,22 +172,17 @@ public final class FishingLineOrigin {
         CameraRenderState cameraState = game.levelRenderState.cameraRenderState;
         AvatarRenderState avatar = playerState.avatarRenderState;
         FirstPersonHandsAndItemsRenderState hands = playerState.firstPersonHandsAndItems;
-        // No rod can be on screen: vanilla's value. Except while only the hidden HUD (F1) hides the
-        // hand (see HandPass): the line is a world object that vanilla keeps drawing, so it keeps
-        // starting where the rod would be.
+        // No rod can be on screen, unless only the hidden HUD (F1) hides the hand (see HandPass).
         if (!HandPass.ranLastFrame() && !HandPass.onlyHudHidesHand()) {
             warnIfHandPassUntracked();
             return null;
         }
-        // No hand state was extracted to compute from. Panorama capture is checked directly, on the
-        // camera as HandPass and Iris' hand renderer do: its first face still sees the previous normal
-        // frame's hand pass. (A mod that flags only the render state, like Pixelshot's large
-        // screenshot, merely skips vanilla's hand pass; the line then stays as with F1.)
+        // Panorama capture is checked on the camera, as HandPass and Iris' hand renderer do: its first
+        // face still sees the previous normal frame's hand pass. (A mod that flags only the render
+        // state, like Pixelshot's large screenshot, merely skips the hand pass: the line stays as with F1.)
         if (camera.isPanoramicMode() || avatar == null || hands.handRenderSelection == null) {
             return null;
         }
-        // Scoping draws no hand but narrows the world FOV x0.1: the corrected origin would sit inside
-        // the scope view, where vanilla's guess lands off-screen.
         if (hands.isScoping) {
             return null;
         }
@@ -195,14 +191,32 @@ public final class FishingLineOrigin {
         FishingHook hook = player.fishing;
         InteractionHand hand = drawnRodHand(player, hands);
         boolean rodDrawn = hand != null;
+        Vector3fc itemAnchor;
         if (rodDrawn) {
+            // The drawn model, gripped where the held rod's third-person transform holds it: the same
+            // arm's, else the other's (the drawn items lag the inventory through a swap).
+            HumanoidArm drawnArm = hand == InteractionHand.MAIN_HAND ? avatar.mainArm : avatar.mainArm.getOpposite();
+            boolean right = drawnArm == HumanoidArm.RIGHT;
+            ItemStackRenderState grip = isRod(right ? avatar.rightHandItemStack : avatar.leftHandItemStack)
+                    ? (right ? avatar.rightHandItemState : avatar.leftHandItemState)
+                    : isRod(right ? avatar.leftHandItemStack : avatar.rightHandItemStack)
+                    ? (right ? avatar.leftHandItemState : avatar.rightHandItemState)
+                    : null;
+            itemAnchor = FirstPersonRod.itemAnchor(
+                    hand == InteractionHand.MAIN_HAND ? hands.mainHandRenderState : hands.offHandRenderState,
+                    hand == InteractionHand.MAIN_HAND ? hands.mainHandItem : hands.offHandItem, grip);
             lastRodHand = hand;
+            lastItemAnchor = itemAnchor;
             if (lastRodHook.get() != hook) {
                 lastRodHook = new WeakReference<>(hook);
             }
         } else if (lastRodHand != null && hook != null && lastRodHook.get() == hook && holdsRod(player)) {
             hand = lastRodHand;
+            itemAnchor = lastItemAnchor;
         } else {
+            return null;
+        }
+        if (itemAnchor == null) {
             return null;
         }
         boolean mainHand = hand == InteractionHand.MAIN_HAND;
@@ -233,7 +247,7 @@ public final class FishingLineOrigin {
         float inverseArmHeight = mainHand
                 ? hands.mainHandSwapScale * (1f - Mth.lerp(partialTicks, hands.oldMainHandHeight, hands.mainHandHeight))
                 : hands.offHandSwapScale * (1f - Mth.lerp(partialTicks, hands.oldOffHandHeight, hands.offHandHeight));
-        Vector3f anchor = FirstPersonRod.lineAnchor(mc, arm, swing, inverseArmHeight);
+        Vector3f anchor = FirstPersonRod.lineAnchor(arm, swing, inverseArmHeight, itemAnchor);
 
         // --- 2. Item sway: the pose stack rotates about X then Y, so the point turns about Y first ---
         anchor.rotateY(Mth.DEG_TO_RAD * (hands.viewYRot - hands.yBob) * ITEM_SWAY_SCALE)
@@ -250,12 +264,10 @@ public final class FishingLineOrigin {
         Vector3f drawn = bob.transformPosition(anchor, new Vector3f());
 
         // --- 4. Same pixel: world tangents = drawn tangents * FOV ratio, at the drawn point's
-        // distance from the eye, with the world pass's bob and warp undone (point is rewritten in
-        // place: world view target -> view space -> world offset) ---
-        // renderLevel projects the world with cameraState.projectionMatrix (bob and warp go onto a
-        // copy), a perspective whose m11 is 1 / tan(worldFov / 2). An orthographic one (a camera mod
-        // replacing the camera's projection) has no FOV to match; mods that swap only renderLevel's
-        // copy (Pixelshot's ortho view) aren't seen here.
+        // distance from the eye, with the world pass's bob and warp undone ---
+        // renderLevel projects with cameraState.projectionMatrix (bob and warp go onto a copy), whose
+        // m11 is 1 / tan(worldFov / 2). An orthographic one has no FOV to match; mods that swap only
+        // renderLevel's copy (Pixelshot's ortho view) aren't seen here.
         if (cameraState.projectionMatrix.m33() != 0f) {
             return null;
         }
@@ -270,9 +282,7 @@ public final class FishingLineOrigin {
         // --- 5. Camera anchor: view space (x right, y up, z back) to world by the camera's
         // rotation, as Camera.move does ---
         point.rotate(camera.rotation());
-        // Defensive: non-finite render-state input from another mod (camera rotation, bob, sway, warp)
-        // would make the origin NaN; a FOV ratio that isn't positive and finite (zero or NaN FOV or
-        // projection, a lone FOV of 180-360deg) is already rejected above.
+        // Non-finite render-state input from another mod (camera rotation, bob, sway, warp).
         if (!point.isFinite()) {
             return null;
         }
@@ -302,7 +312,6 @@ public final class FishingLineOrigin {
             LOGGER.warn("Hand pass tracking isn't active (its GameRenderer.extract hook didn't apply); the fishing line stays vanilla");
             return;
         }
-        // Only frames where the sampled gate would draw a hand count.
         if (HandPass.handPassSeen() || !HandPass.vanillaDrawsHand()) {
             return;
         }

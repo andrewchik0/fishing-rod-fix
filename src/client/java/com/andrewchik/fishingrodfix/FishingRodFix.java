@@ -17,7 +17,6 @@ final class FishingRodFix {
         return stack.getItem() instanceof FishingRodItem;
     }
 
-    /** Whether {@code player} holds a rod in either hand. */
     static boolean holdsRod(Player player) {
         return isRod(player.getMainHandItem()) || isRod(player.getOffhandItem());
     }
